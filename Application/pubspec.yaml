@@ -40,7 +40,7 @@ dependencies:
   speech_to_text: ^7.0.0
   intl: ^0.19.0
 
-  # Obstacle detection module (obstacle_detection_module_plan.md §3).
+  # On-device obstacle detection module.
   # Android/iOS only — everything that touches these is behind the conditional
   # import in lib/features/obstacle_detection/obstacle_detection_entry.dart so
   # the web build keeps working.
