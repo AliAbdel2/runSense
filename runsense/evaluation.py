@@ -1,9 +1,16 @@
-"""Executable scenario evidence, deliberately excluding unmeasured perception metrics."""
+"""Executable scenario evidence, deliberately excluding unmeasured perception metrics.
+
+The ``perception`` key reports only the deterministic triage-logic fixtures from
+``perception_eval``. It is a sibling of the scenario tally on purpose: synthetic
+detection sequences are not agent scenarios, and neither one is a measurement of
+real-world computer vision.
+"""
 import tempfile
 from datetime import date, timedelta
 
 from .agent import Agent
 from .models import Activity, PlanRequest
+from .perception_eval import evaluate_perception
 from .planner import demo_history, generate_plan, guide_confirmations, validate_plan
 from .store import Store
 
@@ -60,7 +67,7 @@ async def evaluate() -> dict:
     record("Reject excess volume", not validate_plan(invalid, history, guides)["passed"], "A proposal above the configured cap is blocked.")
     return {"passed": sum(r["passed"] for r in results), "total": len(results), "results": results,
             "scope": "Deterministic synthetic scenarios, local persistence and failure injection; not live API or clinical validation.",
-            "perception": {"status": "not_measured", "detail": "No camera pipeline or labelled clips. Recall, false alerts and end-to-end audio latency are not measured."}}
+            "perception": evaluate_perception()}
 
 
 if __name__ == "__main__":

@@ -14,7 +14,12 @@ WEEK = date(2026, 9, 14)
 def test_scenario_suite():
     report = asyncio.run(evaluate())
     assert report["passed"] == report["total"] == 16, report
-    assert report["perception"]["status"] == "not_measured"
+    # Perception is a separate, narrower claim: the triage logic is tested against
+    # synthetic fixtures; real-world CV accuracy and latency are still unmeasured.
+    perception = report["perception"]
+    assert perception["status"] == "triage_logic_tested"
+    assert perception["fixtures_passed"] == perception["fixtures_total"] > 0, perception
+    assert "unmeasured" in perception["detail"]
 
 
 def test_baseline_uses_complete_weeks_and_counts_missing_weeks_as_zero():

@@ -9,6 +9,7 @@ belong to the application authentication layer.
 from __future__ import annotations
 
 import asyncio
+import base64
 import hashlib
 import math
 import os
@@ -17,6 +18,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 from typing import Any, Mapping
+from urllib.parse import urlencode
 from zoneinfo import ZoneInfo
 
 import httpx
@@ -43,6 +45,9 @@ class Settings:
     elevenlabs_api_key: str | None = None
     elevenlabs_voice_id: str | None = None
     elevenlabs_model_id: str | None = None
+    twilio_account_sid: str | None = None
+    twilio_auth_token: str | None = None
+    twilio_from_number: str | None = None
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -64,6 +69,9 @@ class Settings:
             elevenlabs_api_key=optional("ELEVENLABS_API_KEY"),
             elevenlabs_voice_id=optional("ELEVENLABS_VOICE_ID"),
             elevenlabs_model_id=optional("ELEVENLABS_MODEL_ID"),
+            twilio_account_sid=optional("TWILIO_ACCOUNT_SID"),
+            twilio_auth_token=optional("TWILIO_AUTH_TOKEN"),
+            twilio_from_number=optional("TWILIO_FROM_NUMBER"),
         )
 
 
@@ -558,6 +566,36 @@ class ElevenLabsClient(_Client):
         return response.content
 
 
+class TwilioClient(_Client):
+    provider = "twilio"
+    base_url = "https://api.twilio.com/2010-04-01"
+
+    async def send_sms(self, to: str, body: str) -> dict[str, Any]:
+        """Send one SMS and return the provider's message record (sid, status)."""
+        if not isinstance(to, str) or not to.strip():
+            raise IntegrationError(self.provider, "destination phone number is empty")
+        if not isinstance(body, str) or not body.strip():
+            raise IntegrationError(self.provider, "message body is empty")
+        account_sid = _require(self.settings.twilio_account_sid, self.provider, "TWILIO_ACCOUNT_SID")
+        auth_token = _require(self.settings.twilio_auth_token, self.provider, "TWILIO_AUTH_TOKEN")
+        sender = _require(self.settings.twilio_from_number, self.provider, "TWILIO_FROM_NUMBER")
+        credentials = base64.b64encode(f"{account_sid}:{auth_token}".encode()).decode()
+        response = await self._request(
+            "POST",
+            f"{self.base_url}/Accounts/{account_sid}/Messages.json",
+            headers={
+                "Authorization": f"Basic {credentials}",
+                "Content-Type": "application/x-www-form-urlencoded",
+                "Accept": "application/json",
+            },
+            content=urlencode({"To": to.strip(), "From": sender, "Body": body}),
+            # Twilio's Messages API offers no idempotency key, so a retried send
+            # is a second delivered message.  Surface the uncertainty instead.
+            retry_statuses=False,
+        )
+        return self._json(response)
+
+
 __all__ = [
     "CalendarClient",
     "ElevenLabsClient",
@@ -565,4 +603,5 @@ __all__ = [
     "NotionClient",
     "Settings",
     "SheetsClient",
+    "TwilioClient",
 ]

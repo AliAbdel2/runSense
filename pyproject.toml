@@ -3,10 +3,23 @@ name = "runsense"
 version = "0.1.0"
 description = "A guide-aware training agent with inspectable decisions and verified app actions"
 requires-python = ">=3.11"
-dependencies = ["fastapi>=0.115,<1", "uvicorn>=0.30,<1", "httpx>=0.27,<1", "pydantic>=2.7,<3"]
+dependencies = ["fastapi>=0.115,<1", "uvicorn>=0.30,<1", "httpx>=0.27,<1", "pydantic>=2.7,<3", "sqlalchemy>=2,<3",
+                "langchain>=0.3,<0.4", "langchain-anthropic>=0.3,<0.4"]
 
 [project.optional-dependencies]
 dev = ["pytest>=8,<10"]
+# Heavy, optional: only runsense/perception.py needs these, and it imports them
+# lazily so the app and the triage logic stay importable without them.
+perception = ["ultralytics>=8,<9", "opencv-python-headless>=4,<5"]
+# Optional too: dashboard/ is a read-only viewer over the typed tables. The API
+# never imports it, so the base install stays Streamlit-free. Note that Streamlit
+# pins websockets<17 while requirements.lock resolves 17.1, so installing this
+# extra downgrades websockets (uvicorn works with either); install it in its own
+# environment if that matters.
+dashboard = ["streamlit>=1,<2"]
+
+[tool.setuptools.packages.find]
+include = ["runsense*", "dashboard*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

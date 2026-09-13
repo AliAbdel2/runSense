@@ -1,10 +1,11 @@
 import asyncio
 import copy
 from dataclasses import replace
+from datetime import timedelta
 
 import pytest
 
-from runsense import integrations
+from runsense import db, delivery, integrations, observability
 from runsense.agent import Agent
 from runsense.models import PlanRequest
 from runsense.planner import demo_history
@@ -93,6 +94,172 @@ def test_superseded_preview_cannot_overwrite_new_plan(tmp_path, monkeypatch):
         await agent.plan(PlanRequest(week_start=WEEK), live=True)
         with pytest.raises(ValueError, match="superseded"):
             await agent.commit(old["run_id"])
+    asyncio.run(run())
+
+
+def _sms_trace(result):
+    return next(t for t in result["trace"] if t["tool"] == "sms.notify_guide_change")
+
+
+def test_guide_cancellation_sends_one_reschedule_sms(tmp_path, monkeypatch):
+    sent = []
+
+    async def fake_send(to, text):
+        sent.append((to, text))
+        return "queued:SM3"
+
+    monkeypatch.setenv("RUNSENSE_GUIDE_PHONE", "+15551234567")
+    monkeypatch.setattr(delivery, "send_sms_notice", fake_send)
+    agent = Agent(Store(str(tmp_path / "test.sqlite3")))
+    result = asyncio.run(agent.plan(PlanRequest(week_start=WEEK, scenario="guide_cancelled")))
+
+    assert result["validation"]["passed"]
+    assert len(sent) == 1
+    to, text = sent[0]
+    assert to == "+15551234567"
+    # The notice names the affected day and states the adaptation that was made.
+    assert (WEEK + timedelta(days=1)).isoformat() in text and "treadmill" in text
+    trace = _sms_trace(result)
+    assert trace["status"] == "completed" and "queued:SM3" in trace["detail"]
+
+
+def test_guide_cancellation_without_sms_configured_still_adapts(tmp_path, monkeypatch):
+    monkeypatch.delenv("RUNSENSE_GUIDE_PHONE", raising=False)
+
+    async def unreachable(to, text):
+        raise AssertionError("no SMS should be attempted without a configured contact")
+
+    monkeypatch.setattr(delivery, "send_sms_notice", unreachable)
+    agent = Agent(Store(str(tmp_path / "test.sqlite3")))
+    result = asyncio.run(agent.plan(PlanRequest(week_start=WEEK, scenario="guide_cancelled")))
+
+    assert result["validation"]["passed"]
+    tuesday = result["plan"]["sessions"][1]
+    assert tuesday["venue"] == "treadmill" and tuesday["guide_status"] == "declined"
+    trace = _sms_trace(result)
+    assert trace["status"] == "skipped" and "RUNSENSE_GUIDE_PHONE" in trace["detail"]
+
+
+def test_guide_cancellation_survives_a_failed_sms(tmp_path, monkeypatch):
+    async def failing(to, text):
+        return "sms_failed"
+
+    monkeypatch.setenv("RUNSENSE_GUIDE_PHONE", "+15551234567")
+    monkeypatch.setattr(delivery, "send_sms_notice", failing)
+    agent = Agent(Store(str(tmp_path / "test.sqlite3")))
+    result = asyncio.run(agent.plan(PlanRequest(week_start=WEEK, scenario="guide_cancelled")))
+
+    assert result["validation"]["passed"] and len(result["calendar_events"]) == 4
+    trace = _sms_trace(result)
+    assert trace["status"] == "skipped" and "notify the guide manually" in trace["detail"]
+    # The honest trace survives a restart alongside the rest of the run.
+    assert _sms_trace(agent.store.get_run(result["run_id"]))["detail"] == trace["detail"]
+
+
+def test_baseline_scenario_never_sends_an_sms(tmp_path, monkeypatch):
+    async def unreachable(to, text):
+        raise AssertionError("only a cancelled guide triggers a notification")
+
+    monkeypatch.setenv("RUNSENSE_GUIDE_PHONE", "+15551234567")
+    monkeypatch.setattr(delivery, "send_sms_notice", unreachable)
+    agent = Agent(Store(str(tmp_path / "test.sqlite3")))
+    result = asyncio.run(agent.plan(PlanRequest(week_start=WEEK)))
+    assert not [t for t in result["trace"] if t["tool"] == "sms.notify_guide_change"]
+
+
+def test_demo_run_mirrors_its_trace_into_the_typed_table(tmp_path):
+    path = str(tmp_path / "test.sqlite3")
+    agent = Agent(Store(path))
+    result = asyncio.run(agent.plan(PlanRequest(week_start=WEEK, scenario="calendar_retry")))
+
+    rows = db.TypedStore(path).list_tool_traces(result["run_id"])
+    # One row per in-memory step, in order, with the list index as the step number.
+    assert [row.tool for row in rows] == [t["tool"] for t in result["trace"]]
+    assert [row.step for row in rows] == list(range(len(result["trace"])))
+    assert all(row.run_id == result["run_id"] for row in rows)
+
+    retried = next(t for t in result["trace"] if t["status"] == "retrying")
+    stored = rows[result["trace"].index(retried)]
+    assert stored.output_json == {"status": "retrying", "detail": retried["detail"]}
+    assert stored.latency_ms == retried["latency_ms"]
+    assert stored.error is None  # a step that recovered is not an error
+    # attempt -> retries: the first attempt is zero retries, and the raw attempt
+    # number is kept on input_json so the mapping stays reversible.
+    assert stored.retries == retried["attempt"] - 1
+    assert stored.input_json == {"attempt": retried["attempt"]}
+    # The injected 503: a "retrying" step at attempt 1, then the write that
+    # succeeded on attempt 2, then three untroubled sessions.
+    assert [row.retries for row in rows if row.tool == "calendar.upsert_session"] == [0, 1, 0, 0, 0]
+
+    # The in-memory shape the API, app.js and evaluation.py read is untouched.
+    assert all(set(t) == {"tool", "status", "attempt", "latency_ms", "detail"} for t in result["trace"])
+
+
+def test_typed_trace_rows_are_not_duplicated_by_a_second_run(tmp_path):
+    path = str(tmp_path / "test.sqlite3")
+    agent = Agent(Store(path))
+    first = asyncio.run(agent.plan(PlanRequest(week_start=WEEK)))
+    second = asyncio.run(agent.plan(PlanRequest(week_start=WEEK)))
+    store = db.TypedStore(path)
+    assert len(store.list_tool_traces(first["run_id"])) == len(first["trace"])
+    assert len(store.list_tool_traces()) == len(first["trace"]) + len(second["trace"])
+
+
+def test_commit_appends_its_own_steps_without_rewriting_the_planning_ones(tmp_path, monkeypatch):
+    fake_providers(monkeypatch)
+    path = str(tmp_path / "test.sqlite3")
+    agent = Agent(Store(path))
+
+    async def run():
+        preview = await agent.plan(PlanRequest(week_start=WEEK), live=True)
+        planned = len(preview["trace"])
+        committed = await agent.commit(preview["run_id"])
+        rows = db.TypedStore(path).list_tool_traces(preview["run_id"])
+        assert [row.tool for row in rows] == [t["tool"] for t in committed["trace"]]
+        assert [row.step for row in rows] == list(range(len(committed["trace"])))
+        assert len(rows) > planned  # the commit's own verified writes were appended
+        # Committing again is a no-op for the run, so it adds no further rows.
+        await agent.commit(preview["run_id"])
+        assert len(db.TypedStore(path).list_tool_traces(preview["run_id"])) == len(rows)
+    asyncio.run(run())
+
+
+def test_a_failing_typed_store_never_breaks_a_run(tmp_path, monkeypatch):
+    """The non-fatal guarantee: recording is optional infrastructure, the run is not."""
+    calls = []
+
+    def exploding(session, **kwargs):
+        calls.append(kwargs["tool"])
+        raise RuntimeError("database is locked")
+
+    monkeypatch.setattr(observability, "record_tool_trace", exploding)
+    path = str(tmp_path / "test.sqlite3")
+    agent = Agent(Store(path))
+    result = asyncio.run(agent.plan(PlanRequest(week_start=WEEK, scenario="calendar_retry")))
+
+    assert calls  # the write really was attempted, and really did raise
+    # The run itself is untouched: validation, simulated events, in-memory trace
+    # and the durable blob row all land exactly as they do without the typed table.
+    assert result["validation"]["passed"] and len(result["calendar_events"]) == 4
+    assert any(t["status"] == "retrying" for t in result["trace"])
+    assert agent.store.get_run(result["run_id"])["trace"] == result["trace"]
+    assert db.TypedStore(path).list_tool_traces(result["run_id"]) == []
+
+
+def test_a_failing_typed_store_never_breaks_a_commit(tmp_path, monkeypatch):
+    rows, events, pages, controls = fake_providers(monkeypatch)
+
+    def exploding(path=None):
+        raise RuntimeError("no such table: tool_traces")
+
+    monkeypatch.setattr(observability, "_typed_store", exploding)
+    agent = Agent(Store(str(tmp_path / "test.sqlite3")))
+
+    async def run():
+        preview = await agent.plan(PlanRequest(week_start=WEEK), live=True)
+        committed = await agent.commit(preview["run_id"])
+        assert committed["committed"]
+        assert len(events) == 4 and len(pages) == 1
     asyncio.run(run())
 
 

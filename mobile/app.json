@@ -1,0 +1,60 @@
+{
+  "expo": {
+    "name": "RunSense",
+    "slug": "runsense",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "icon": "./assets/images/icon.png",
+    "scheme": "runsense",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "extra": {
+      "runsenseApiBaseUrl": "http://127.0.0.1:8000"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "dev.runsense.mobile",
+      "infoPlist": {
+        "UIRequiresFullScreen": true,
+        "NSCameraUsageDescription": "RunSense uses the rear camera to detect obstacles ahead of the runner.",
+        "NSMicrophoneUsageDescription": "RunSense uses the microphone for on-device push-to-talk questions to the coach.",
+        "NSSupportsLiveActivities": false,
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+    "android": {
+      "package": "dev.runsense.mobile",
+      "adaptiveIcon": {
+        "backgroundColor": "#0B1220",
+        "foregroundImage": "./assets/images/android-icon-foreground.png",
+        "backgroundImage": "./assets/images/android-icon-background.png",
+        "monochromeImage": "./assets/images/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false,
+      "permissions": ["android.permission.CAMERA", "android.permission.RECORD_AUDIO", "android.permission.VIBRATE"]
+    },
+    "web": {
+      "output": "static",
+      "favicon": "./assets/images/favicon.png"
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "react-native-vision-camera",
+        { "cameraPermissionText": "RunSense uses the camera to detect nearby obstacles." }
+      ],
+      "expo-speech-recognition",
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#0B1220",
+          "image": "./assets/images/splash-icon.png",
+          "imageWidth": 96
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": false
+    }
+  }
+}

@@ -2,24 +2,34 @@ import os
 import secrets
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Query, Request, Response
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from .agent import Agent
+from .delivery import read_clip, speak, TTS_NOT_CONFIGURED, TTS_FAILED
 from .evaluation import evaluate
-from .models import CommitRequest, PlanRequest
+from .models import CommitRequest, CoachAskRequest, PlanRequest, SessionChangeRequest
+from .observability import recent_alerts, recent_traces
 from .store import Store
 from .strava_mcp import StravaMCPError
 from .strava_source import StravaSourceError
 
 STATIC = Path(__file__).parent / "static"
+DEFAULT_ALLOWED_HOSTS = ["localhost", "127.0.0.1", "testserver", "[::1]"]
+
+
+def allowed_hosts() -> list[str]:
+    """Return explicit hostnames/IPs accepted by the local dashboard."""
+    configured = os.getenv("RUNSENSE_ALLOWED_HOSTS", "")
+    hosts = [value.strip() for value in configured.split(",") if value.strip()]
+    return hosts or DEFAULT_ALLOWED_HOSTS
 
 
 def create_app(db_path: str | None = None) -> FastAPI:
     app = FastAPI(title="RunSense", version="0.1.0", docs_url="/api/docs", redoc_url=None)
-    app.add_middleware(TrustedHostMiddleware, allowed_hosts=["localhost", "127.0.0.1", "testserver", "[::1]"])
+    app.add_middleware(TrustedHostMiddleware, allowed_hosts=allowed_hosts())
     agent = Agent(Store(db_path or os.getenv("RUNSENSE_DB", "data/runsense.sqlite3")))
     app.state.agent = agent
     # A fresh, same-origin browser session is required for personal data in demo mode.
@@ -78,6 +88,7 @@ def create_app(db_path: str | None = None) -> FastAPI:
             ("Google Calendar", ["GOOGLE_ACCESS_TOKEN"], "Scheduled training sessions"),
             ("Notion", ["NOTION_API_KEY", "NOTION_DATA_SOURCE_ID"], "Plan journal and adaptation rationale"),
             ("ElevenLabs", ["ELEVENLABS_API_KEY", "ELEVENLABS_VOICE_ID", "ELEVENLABS_MODEL_ID"], "Optional coaching audio"),
+            ("Twilio", ["TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN", "TWILIO_FROM_NUMBER"], "Optional guide and athlete SMS updates"),
         ]
         strava = agent.strava.status()
         return {"mode": "live" if live else "demo", "llm_configured": bool(os.getenv("ANTHROPIC_API_KEY") and os.getenv("ANTHROPIC_MODEL")),
@@ -145,9 +156,65 @@ def create_app(db_path: str | None = None) -> FastAPI:
             raise HTTPException(404, "Run not found.")
         return agent.public(result)
 
+    @app.get("/api/traces")
+    async def traces(run_id: str | None = None, limit: int = Query(200, ge=1, le=1000)):
+        """Recorded tool steps across runs, oldest first.
+
+        The per-run trace on ``/api/runs/{id}`` is the authoritative in-memory list
+        for one run; this is the cross-run, queryable copy. Personal Strava
+        previews are memory-only and never appear here.
+        """
+        try:
+            rows = recent_traces(run_id, limit, agent.store.path)
+        except Exception as exc:
+            raise HTTPException(503, "Trace history is unavailable; the typed tables could not be read.") from exc
+        return {"run_id": run_id, "count": len(rows), "traces": rows}
+
+    @app.get("/api/alerts")
+    async def alerts(session_id: str | None = None, tier: str | None = None,
+                     limit: int = Query(200, ge=1, le=1000)):
+        """Recorded perception alerts, oldest first.
+
+        These come from the server-side pipeline's triage stage. Nothing here is a
+        measurement of real-world detection quality; see docs before reading them
+        as one.
+        """
+        try:
+            rows = recent_alerts(session_id, tier, limit, agent.store.path)
+        except Exception as exc:
+            raise HTTPException(503, "Alert history is unavailable; the typed tables could not be read.") from exc
+        return {"session_id": session_id, "tier": tier, "count": len(rows), "alerts": rows}
+
+    @app.get("/api/audio/{clip_id}")
+    async def get_audio(clip_id: str):
+        # The clip ID is a content hash, so only a caller that already holds the
+        # generated ID can read the cue back. Unknown and malformed IDs are the
+        # same answer; the cache layout is not probeable from here.
+        audio = read_clip(clip_id)
+        if audio is None:
+            raise HTTPException(404, "Audio clip not found.")
+        return Response(content=audio, media_type="audio/mpeg")
+
     @app.post("/api/evaluate")
     async def run_evaluation():
         return await evaluate()
+
+    @app.post("/api/coach/ask")
+    async def coach_ask(body: CoachAskRequest):
+        from .llm import ask_coach
+        try:
+            answer = await ask_coach(body.question, body.athlete_id)
+            clip = await speak(answer)
+            return {"answer": answer, "audio_clip_id": clip if clip not in {TTS_NOT_CONFIGURED, TTS_FAILED} and len(clip) == 32 else None}
+        except ValueError as exc:
+            raise HTTPException(502, str(exc)) from exc
+
+    @app.post("/api/sessions/{session_id}/change-request")
+    async def session_change_request(session_id: str, body: SessionChangeRequest):
+        from .observability import record_trace
+        detail = f"Change request recorded for session {session_id}; re-planning is not automatic."
+        record_trace([{"tool": "session.change_request", "status": "completed", "attempt": 1, "latency_ms": 0, "detail": detail, "input": {"request": body.request}}], run_id=session_id, path=agent.store.path)
+        return {"status": "recorded", "detail": detail}
 
     @app.get("/")
     async def index():

@@ -1,10 +1,21 @@
 """Contract tests for integrations; all provider traffic is mocked."""
 
 import asyncio
+import base64
 import json
+from dataclasses import replace
+from urllib.parse import parse_qsl
 
 import httpx
 
+from runsense.delivery import (
+    clip_id,
+    clip_path,
+    read_clip,
+    send_sms_notice,
+    speak,
+    twilio_configured,
+)
 from runsense.integrations import (
     CalendarClient,
     ElevenLabsClient,
@@ -12,6 +23,7 @@ from runsense.integrations import (
     NotionClient,
     Settings,
     SheetsClient,
+    TwilioClient,
 )
 
 
@@ -335,3 +347,191 @@ def test_elevenlabs_returns_audio_bytes():
         async with ElevenLabsClient(settings, httpx.MockTransport(handler)) as client:
             return await client.synthesize("Go.")
     assert run(operation()) == b"audio"
+
+
+def test_elevenlabs_rejects_empty_audio_response():
+    settings = Settings(elevenlabs_api_key="secret", elevenlabs_voice_id="voice", elevenlabs_model_id="model")
+    async def operation():
+        async with ElevenLabsClient(settings, httpx.MockTransport(lambda r: httpx.Response(200, content=b""))) as client:
+            await client.synthesize("Go.")
+    try:
+        run(operation())
+    except IntegrationError as exc:
+        assert "empty audio" in str(exc)
+        assert "secret" not in str(exc)
+    else:
+        raise AssertionError("expected empty audio to be rejected")
+
+
+def _twilio_settings(**overrides):
+    value = {"twilio_account_sid": "AC123", "twilio_auth_token": "secret-token",
+             "twilio_from_number": "+15550000000"}
+    value.update(overrides)
+    return Settings(**value)
+
+
+def test_twilio_posts_form_encoded_message_with_basic_auth():
+    requests = []
+    def handler(request):
+        requests.append(request)
+        return httpx.Response(201, json={"sid": "SM1", "status": "queued", "to": "+15551234567"})
+
+    async def operation():
+        async with TwilioClient(_twilio_settings(), httpx.MockTransport(handler)) as client:
+            return await client.send_sms("+15551234567", "Your guide cancelled.")
+    result = run(operation())
+    assert result["sid"] == "SM1" and result["status"] == "queued"
+    request = requests[0]
+    assert request.url.path == "/2010-04-01/Accounts/AC123/Messages.json"
+    assert request.headers["content-type"] == "application/x-www-form-urlencoded"
+    credentials = base64.b64decode(request.headers["authorization"].split()[1]).decode()
+    assert credentials == "AC123:secret-token"
+    form = dict(parse_qsl(request.content.decode()))
+    assert form == {"To": "+15551234567", "From": "+15550000000", "Body": "Your guide cancelled."}
+
+
+def test_twilio_error_response_is_sanitized_and_not_resent():
+    requests = []
+    def handler(request):
+        requests.append(request)
+        return httpx.Response(400, json={"code": 21211, "message": "The 'To' number is not a valid phone number"})
+
+    async def operation():
+        async with TwilioClient(_twilio_settings(), httpx.MockTransport(handler)) as client:
+            await client.send_sms("+15551234567", "Your guide cancelled.")
+    try:
+        run(operation())
+    except IntegrationError as exc:
+        assert exc.status_code == 400
+        assert "secret-token" not in str(exc)
+        assert "21211" not in str(exc) and "not a valid phone number" not in str(exc)
+    else:
+        raise AssertionError("expected a provider error")
+    # An SMS has no idempotency key, so a failed send is never retried into a duplicate.
+    assert len(requests) == 1
+
+
+def test_twilio_server_error_is_not_retried_into_duplicate_messages():
+    requests = []
+    def handler(request):
+        requests.append(request)
+        return httpx.Response(503)
+
+    async def operation():
+        async with TwilioClient(_twilio_settings(), httpx.MockTransport(handler)) as client:
+            await client.send_sms("+15551234567", "Hello.")
+    try:
+        run(operation())
+    except IntegrationError as exc:
+        assert exc.status_code == 503
+    else:
+        raise AssertionError("expected a provider error")
+    assert len(requests) == 1
+
+
+def test_twilio_requires_configuration_and_nonempty_message():
+    def unreachable(request):
+        raise AssertionError("no request should be made without valid inputs")
+    transport = httpx.MockTransport(unreachable)
+
+    async def missing_credentials():
+        async with TwilioClient(Settings(), transport) as client:
+            await client.send_sms("+15551234567", "Hello.")
+    try:
+        run(missing_credentials())
+    except IntegrationError as exc:
+        assert "TWILIO_ACCOUNT_SID" in str(exc)
+    else:
+        raise AssertionError("expected missing configuration to be reported")
+
+    for to, body, expected in [("", "Hello.", "phone number is empty"), ("+1555", "  ", "message body is empty")]:
+        async def bad_input(to=to, body=body):
+            async with TwilioClient(_twilio_settings(), transport) as client:
+                await client.send_sms(to, body)
+        try:
+            run(bad_input())
+        except IntegrationError as exc:
+            assert expected in str(exc)
+        else:
+            raise AssertionError("expected invalid SMS input to be rejected")
+
+
+def test_twilio_settings_from_env(monkeypatch):
+    monkeypatch.setenv("TWILIO_ACCOUNT_SID", "AC999")
+    monkeypatch.setenv("TWILIO_AUTH_TOKEN", "token")
+    monkeypatch.setenv("TWILIO_FROM_NUMBER", "")
+    settings = Settings.from_env()
+    assert settings.twilio_account_sid == "AC999"
+    assert settings.twilio_auth_token == "token"
+    # An empty environment variable is absent, so the integration stays unconfigured.
+    assert settings.twilio_from_number is None
+    assert twilio_configured(settings) is False
+
+
+# --- delivery layer: honest no-ops, deterministic cache, real provider calls ---
+
+
+def _voice_settings():
+    return Settings(elevenlabs_api_key="secret", elevenlabs_voice_id="voice", elevenlabs_model_id="model")
+
+
+def test_speak_caches_audio_under_a_deterministic_clip_id(tmp_path):
+    calls = []
+    def handler(request):
+        calls.append(request)
+        return httpx.Response(200, content=b"ID3-audio")
+    transport = httpx.MockTransport(handler)
+    settings, directory = _voice_settings(), str(tmp_path / "audio")
+
+    clip = run(speak("Turn left in ten metres.", settings, transport, directory))
+    assert clip == clip_id("Turn left in ten metres.", settings)
+    assert read_clip(clip, directory) == b"ID3-audio"
+    # A repeated identical cue is served from the cache; the provider is called once.
+    assert run(speak("Turn left in ten metres.", settings, transport, directory)) == clip
+    assert len(calls) == 1
+    # A different cue, voice or model is a different clip.
+    assert run(speak("Turn right.", settings, transport, directory)) != clip
+    assert len(calls) == 2
+    other = replace(settings, elevenlabs_voice_id="other-voice")
+    assert clip_id("Turn left in ten metres.", other) != clip
+
+
+def test_speak_without_credentials_is_an_honest_noop(tmp_path):
+    def unreachable(request):
+        raise AssertionError("an unconfigured integration must not be called")
+    transport = httpx.MockTransport(unreachable)
+    directory = str(tmp_path / "audio")
+    assert run(speak("Turn left.", Settings(), transport, directory)) == "tts_not_configured"
+    assert run(speak("Turn left.", replace(_voice_settings(), elevenlabs_voice_id=None), transport, directory)) == "tts_not_configured"
+    assert run(speak("   ", _voice_settings(), transport, directory)) == "tts_empty_text"
+    assert not list(tmp_path.glob("audio/*"))
+
+
+def test_speak_provider_failure_does_not_raise_into_the_caller(tmp_path):
+    transport = httpx.MockTransport(lambda request: httpx.Response(400, json={"detail": "do not expose"}))
+    assert run(speak("Turn left.", _voice_settings(), transport, str(tmp_path / "audio"))) == "tts_failed"
+    assert not list(tmp_path.glob("audio/*"))
+
+
+def test_read_clip_rejects_ids_that_are_not_cache_keys(tmp_path):
+    directory = str(tmp_path / "audio")
+    (tmp_path / "secret.mp3").write_bytes(b"private")
+    for bad in ["../secret", "/etc/passwd", "not-hex-at-all", "AB" * 16, "", "a" * 31]:
+        assert clip_path(bad, directory) is None
+        assert read_clip(bad, directory) is None
+
+
+def test_send_sms_notice_reports_status_and_never_raises():
+    def handler(request):
+        return httpx.Response(201, json={"sid": "SM7", "status": "queued"})
+    assert run(send_sms_notice("+15551234567", "Rescheduled.", _twilio_settings(),
+                               httpx.MockTransport(handler))) == "queued:SM7"
+
+    def unreachable(request):
+        raise AssertionError("an unconfigured integration must not be called")
+    assert run(send_sms_notice("+15551234567", "Rescheduled.", Settings(),
+                               httpx.MockTransport(unreachable))) == "not_configured"
+    assert run(send_sms_notice("", "Rescheduled.", _twilio_settings(),
+                               httpx.MockTransport(unreachable))) == "sms_invalid_request"
+    assert run(send_sms_notice("+15551234567", "Rescheduled.", _twilio_settings(),
+                               httpx.MockTransport(lambda r: httpx.Response(500)))) == "sms_failed"

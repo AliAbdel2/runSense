@@ -50,3 +50,12 @@ class PlanRequest(StrictModel):
 class CommitRequest(StrictModel):
     run_id: str
     approved: bool = False
+
+
+class CoachAskRequest(StrictModel):
+    question: str = Field(min_length=1, max_length=500)
+    athlete_id: str = Field(default="sara", min_length=1, max_length=100)
+
+
+class SessionChangeRequest(StrictModel):
+    request: str = Field(min_length=1, max_length=500)

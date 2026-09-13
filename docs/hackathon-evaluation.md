@@ -12,7 +12,10 @@ The implementation should make three states visible in the UI and brief:
 | --- | --- | --- |
 | Working now | Local plan generation, constraints, trace, and reliability checks run end to end. | Reproducible command, screenshot or recording, trace and check output. |
 | Connected and verified | A user-authorized Google Sheets read, Google Calendar write, or Notion write completed during rehearsal. | Timestamped response or event/page link with secrets removed; retry/idempotency trace. |
-| Planned | Obstacle perception, mobile delivery, or ElevenLabs playback is a next step. | A small interface contract and test seam; no live claim. |
+| Built but unproven | Obstacle triage logic, ElevenLabs/Twilio delivery, and a mobile scaffold now exist in the repository, each short of the evidence that would let it be demonstrated as working. | Name the exact check that passed — triage logic against synthetic fixtures, provider clients against mock transports, the mobile app against a type check — and the check that does not exist. |
+| Planned | Real obstacle detection on footage, on-device inference, and any verified spoken or SMS delivery are still next steps. | A measurement against labelled clips or a real provider call; no live claim from code alone. |
+
+The middle row is new and is the easiest row to overstate, so state it in three parts. The alert decision logic in `runsense/triage.py` is genuine and unit tested — zone, distance bucket, tier, debounce, re-announcement and DANGER pre-emption — and `runsense.perception_eval` exercises it over ten procedurally generated detection sequences. The detector wrapper around it has never been run: there is no camera, no labelled footage and no on-device execution in this environment. ElevenLabs speech and Twilio SMS are really called by the delivery code and are cached and traced, but every test drives them through a mock transport, as the Sheets, Calendar and Notion adapters are; no request has left this repository, and the same is true of the Claude path after its move to LangChain. The `mobile/` scaffold has passed `npx tsc --noEmit` and nothing else: it has never run on a device, a simulator or Expo Go, and its voice capture and camera perception are stubs. Describe each of these as implemented-and-logic-tested, never as working, and do not let a demo imply a runner has heard an alert.
 
 ## Event fit and corrections to the PDF
 
@@ -44,6 +47,8 @@ The PDF's “track” exemption should not be presented as proof that an unguide
 
 Do not report the PDF's “under 400 ms” perception target until a capture-to-audio measurement exists. A timer that starts after capture, inference, or queueing excludes camera capture and playback and cannot substantiate end-to-end latency. If perception is not implemented in this build, show it in the backlog and remove recall, zone accuracy, and latency numbers from the demo.
 
+This instruction did not lapse when the triage logic landed, and the harness output is the specific thing most likely to be misread as retiring it. `runsense.perception_eval` reports `"status": "triage_logic_tested"` with ten of ten fixtures passing. Those ten are hand-placed bounding boxes generated in Python, so the number counts decision cases, not clips, and the status names the layer that was tested rather than a result. It is not a recall figure, a zone-accuracy figure, a false-alert rate or a latency measurement, and quoting it beside the PDF's targets — or letting a slide place it where an accuracy number would go — would misrepresent it. The four unmeasured quantities the harness itself lists stay in the backlog until labelled clips, a phone and an end-to-end timer produce them.
+
 ## Prioritized build and rehearsal backlog
 
 1. Keep the deterministic local flow green: fixture → constraints → plan → trace → evaluation panel.
@@ -51,7 +56,8 @@ Do not report the PDF's “under 400 ms” perception target until a capture-to-
 3. Add idempotency and retry evidence for each write, including one deliberate transient failure.
 4. Make connection status and “demo/local” labels impossible to miss; expose an honest `No apps connected` fallback. A Strava MCP connection check must show the tools actually discovered and must not claim historical activity eligibility from protocol connectivity alone.
 5. Record the two-minute demo and a backup with local fixtures. Add an audio clip only if it is already tested; do not make TTS a release gate.
-6. After submission readiness, prototype perception behind a separate interface and evaluate it on labelled clips. It must not be implied by the planning demo.
+6. Perception now sits behind its own interface, with the alert decision logic separated from the detector and tested independently. The remaining half of this item is unchanged: evaluate it on labelled clips, measure capture-to-audio latency on a phone, and keep it out of anything the planning demo implies.
+7. The mobile scaffold's next gate is running it — on a simulator first, then a device — before any screen appears in a recording. A type check is not a demo.
 
 ## Unknowns to resolve before submitting
 

@@ -1,10 +1,12 @@
 import asyncio
 import json
+import os
 from datetime import date
 from time import perf_counter
 from uuid import uuid4
 
 from .models import Activity, Plan, PlanRequest
+from .observability import record_run_trace
 from .planner import demo_history, generate_plan, guide_confirmations, next_monday, stable_id, validate_plan
 from .store import Store
 from .strava_source import StravaSource, StravaSourceError
@@ -53,6 +55,9 @@ class Agent:
                   "calendar_events": [], "audio_url": None, "committed": False,
                   "retention": "memory_only", "expires_in_seconds": self.strava.ttl_seconds}
         # Raw MCP results and normalized history leave scope without persistence.
+        # The trace is deliberately not mirrored into the typed tool_traces table
+        # either: a personal Strava preview is memory-only with a TTL, and a
+        # queryable copy of its steps would outlive that promise.
         self.strava.save_preview(result)
         return result
 
@@ -97,7 +102,12 @@ class Agent:
                   "history": [a.model_dump(mode="json") for a in history], "guides": guides, "committed": False}
         if not live:
             self.simulate_actions(result, inject_failure=request.scenario == "calendar_retry")
+        if request.scenario == "guide_cancelled":
+            await self.notify_guide_change(result)
         self.store.save_run(result)
+        # Second, queryable copy of the same trace steps. The in-memory list and the
+        # blob run payload above are unchanged; this is additive and never fatal.
+        record_run_trace(result, self.store.path)
         if live:
             self.store.upsert_action("latest_live_preview", plan.id, {"run_id": run_id})
         return self.public(result)
@@ -129,6 +139,45 @@ class Agent:
                       "detail": "Plan and adaptation rationale saved to the local simulated journal."})
         trace.append({"tool": "voice.prepare_summary", "status": "completed", "attempt": 1, "latency_ms": 0,
                       "detail": "Speakable summaries ready. Browser speech runs only when Listen is pressed; ElevenLabs was not called."})
+
+    async def notify_guide_change(self, result: dict) -> str:
+        """Best-effort SMS when a cancelled guide moves a session indoors.
+
+        Optional and never fatal: an unset contact, missing Twilio credentials or
+        a failed send all record an honest trace note and the adaptation still
+        completes.  A message is only ever sent when someone has deliberately set
+        both RUNSENSE_GUIDE_PHONE and Twilio credentials, so the demo scenarios
+        stay side-effect free by default.
+        """
+        from .delivery import SMS_NOT_CONFIGURED, send_sms_notice
+
+        moved = [s for s in result["plan"]["sessions"] if s["guide_status"] == "declined"]
+        contact = os.getenv("RUNSENSE_GUIDE_PHONE", "").strip()
+        started = perf_counter()
+        if not contact or not moved:
+            status = SMS_NOT_CONFIGURED
+        else:
+            dates = ", ".join(s["date"] for s in moved)
+            text = (f"RunSense: your guide cancelled for {dates}. That session keeps the same distance "
+                    "and moves to the treadmill. Reply to your guide to reschedule.")
+            try:
+                status = await send_sms_notice(contact, text)
+            except Exception:
+                # send_sms_notice is already non-raising; this is a last resort so
+                # an unexpected transport failure cannot void a valid adaptation.
+                status = "sms_failed"
+        sent = status not in (SMS_NOT_CONFIGURED, "sms_failed", "sms_invalid_request")
+        details = {
+            SMS_NOT_CONFIGURED: "No SMS sent: set RUNSENSE_GUIDE_PHONE and Twilio credentials to notify the athlete's guide contact.",
+            "sms_failed": "SMS provider rejected the reschedule notice. The indoor adaptation still stands; notify the guide manually.",
+            "sms_invalid_request": "SMS not attempted: the configured guide contact or message was empty.",
+        }
+        result["trace"].append({
+            "tool": "sms.notify_guide_change", "status": "completed" if sent else "skipped",
+            "attempt": 1, "latency_ms": round((perf_counter() - started) * 1000, 2),
+            "detail": details.get(status, f"Reschedule notice sent to the configured guide contact; provider status {status}."),
+        })
+        return status
 
     async def commit(self, run_id: str) -> dict:
         from .integrations import CalendarClient, NotionClient, Settings, SheetsClient
@@ -197,9 +246,13 @@ class Agent:
                                        "latency_ms": 0, "detail": "Notion plan identity, title and summary verified by read-back. Cross-app writes are not atomic."})
                 result["committed"] = True
                 self.store.save_run(result)
+                record_run_trace(result, self.store.path)
                 return self.public(result)
             except Exception:
                 result["trace"].append({"tool": "workflow.commit", "status": "failed", "attempt": 1,
                                        "latency_ms": 0, "detail": "Commit stopped. Earlier verified writes may remain; retry this same run to reconcile."})
                 self.store.save_run(result)
+                # A stopped commit is exactly when the queryable trace matters most,
+                # so it is recorded before the error propagates - best effort, as ever.
+                record_run_trace(result, self.store.path)
                 raise
