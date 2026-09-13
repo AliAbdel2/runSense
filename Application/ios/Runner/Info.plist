@@ -2,7 +2,7 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<!-- Obstacle detection module (obstacle_detection_module_plan.md 4.3) -->
+	<!-- On-device obstacle detection -->
 	<key>NSCameraUsageDescription</key>
 	<string>The camera is used to detect obstacles ahead of you while you run.</string>
 	<!-- Voice "start" command on the coach briefing screen (VoiceCommandService) -->

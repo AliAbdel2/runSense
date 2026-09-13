@@ -9,8 +9,7 @@ import 'obstacle_detection_controller.dart';
 
 /// The camera pipeline, wearing the app's [PerceptionService] interface.
 ///
-/// This is the seam described in `runsense_flutter_plan.md` section 10: the
-/// module keeps its own internal alert type and this class translates it into
+/// The module keeps its own internal alert type and this class translates it into
 /// `lib/models/alert.dart`'s [app.ObstacleAlert] on the way out, so the Live
 /// Run screen (and anything else downstream) is unchanged whether alerts come
 /// from [MockPerceptionService] or from a real camera.
