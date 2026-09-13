@@ -43,6 +43,7 @@ class MockData {
               'Today is 4 times 800 meter intervals at the track. Your guide is confirmed.',
           guideStatus: GuideStatus.accepted,
           venue: 'track',
+          targetPaceSecPerKm: 300,
         ),
         PlannedSession(
           id: 'wed-rest',
@@ -61,6 +62,7 @@ class MockData {
           spokenSummary: 'Today is a 5 kilometer easy run outdoors. No guide needed.',
           guideStatus: GuideStatus.notNeeded,
           venue: 'outdoor',
+          targetPaceSecPerKm: 390,
         ),
         PlannedSession(
           id: 'fri-rest',
@@ -80,6 +82,7 @@ class MockData {
               'Today is a 12 kilometer long run outdoors. Your guide is confirmed.',
           guideStatus: GuideStatus.accepted,
           venue: 'outdoor',
+          targetPaceSecPerKm: 420,
         ),
         PlannedSession(
           id: 'sun-rest',

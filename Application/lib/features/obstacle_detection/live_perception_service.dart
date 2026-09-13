@@ -49,6 +49,7 @@ class LivePerceptionService implements PerceptionService {
     unawaited(_controller.stop());
   }
 
+  @override
   Future<void> dispose() async {
     await _sub.cancel();
     await _out.close();

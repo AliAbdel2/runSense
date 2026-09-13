@@ -40,8 +40,9 @@ class MockPerceptionService implements PerceptionService {
     _timers.clear();
   }
 
-  void dispose() {
+  @override
+  Future<void> dispose() async {
     stopSimulation();
-    _controller.close();
+    await _controller.close();
   }
 }

@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-import '../features/obstacle_detection/obstacle_detection_entry.dart';
 import '../models/session.dart';
 import '../services/agent_chat_service.dart';
 import '../services/plan_service.dart';
@@ -10,7 +9,7 @@ import '../theme/app_spacing.dart';
 import '../theme/app_theme.dart';
 import '../widgets/big_action_button.dart';
 import '../widgets/session_type_badge.dart';
-import 'live_run_screen.dart';
+import 'coach_briefing_screen.dart';
 import 'week_plan_screen.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -66,12 +65,9 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _startSession() async {
     final today = _today;
     if (today == null) return;
-    final tts = context.read<TtsService>();
-    await tts.speak('Starting session: ${today.description}');
-    if (!mounted) return;
-    // LiveRunScreen calls SessionService.startSession() itself once pushed.
+    // CoachBriefingScreen speaks the briefing and, from there, starts the run.
     await Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => LiveRunScreen(plannedSessionId: today.id)),
+      MaterialPageRoute(builder: (_) => CoachBriefingScreen(session: today)),
     );
     // Ending the run can leave the plan in a different state (e.g. a replan
     // happened, or a future checkpoint has endSession() adapt tomorrow's
@@ -185,16 +181,6 @@ class _HomeScreenState extends State<HomeScreen> {
                       primary: false,
                       onPressed: _askingCoach ? null : _askCoach,
                     ),
-                    if (obstacleDetectionSupported) ...[
-                      const SizedBox(height: AppSpacing.md),
-                      BigActionButton(
-                        label: 'OBSTACLE DETECTION',
-                        semanticLabel: 'Open obstacle detection',
-                        primary: false,
-                        onPressed: () => Navigator.of(context)
-                            .pushNamed(obstacleDetectionRoute),
-                      ),
-                    ],
                   ],
                 ),
         ),

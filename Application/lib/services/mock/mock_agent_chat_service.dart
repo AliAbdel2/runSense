@@ -8,6 +8,10 @@ class MockAgentChatService implements AgentChatService {
     await Future.delayed(const Duration(milliseconds: 400));
     final lower = text.toLowerCase();
 
+    if (lower.contains('workout') || lower.contains('today')) {
+      return "Focus on even splits and keep the recoveries easy. I'll call "
+          "out your pace as you go and warn you about anything in your path.";
+    }
     if (lower.contains('plan') && lower.contains('week')) {
       return "Done. I pulled your recent Strava runs and sent guide requests "
           "for Tuesday and Saturday, with a calendar invite for each.";

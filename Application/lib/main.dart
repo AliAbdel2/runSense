@@ -22,7 +22,11 @@ void main() {
 }
 
 class RunSenseApp extends StatelessWidget {
-  const RunSenseApp({super.key});
+  const RunSenseApp({super.key, this.forceMocks = false});
+
+  /// Test seam: forces every service (including perception) to its mock,
+  /// so widget tests never try to open a real camera. See app_config.dart.
+  final bool forceMocks;
 
   @override
   Widget build(BuildContext context) {
@@ -43,9 +47,10 @@ class RunSenseApp extends StatelessWidget {
               : throw UnimplementedError('LiveSessionService not wired yet'),
         ),
         Provider<PerceptionService>(
-          create: (ctx) => useMock
-              ? MockPerceptionService()
-              : createLivePerceptionService(ctx.read<TtsService>()),
+          create: (ctx) => (useLiveCamera && obstacleDetectionSupported && !forceMocks)
+              ? createLivePerceptionService(ctx.read<TtsService>())
+              : MockPerceptionService(),
+          dispose: (_, service) => service.dispose(),
         ),
         Provider<AgentChatService>(
           create: (_) => useMock
@@ -64,9 +69,6 @@ class RunSenseApp extends StatelessWidget {
         darkTheme: AppTheme.dark,
         themeMode: ThemeMode.system,
         home: const HomeScreen(),
-        routes: {
-          obstacleDetectionRoute: buildObstacleDetectionScreen,
-        },
       ),
     );
   }

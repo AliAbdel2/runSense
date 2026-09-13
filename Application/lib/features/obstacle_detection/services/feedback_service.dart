@@ -32,7 +32,10 @@ class FeedbackService {
   /// Start/stop confirmations and error explanations. Always interrupts.
   Future<void> announce(String message) => _tts.interruptAndSpeak(message);
 
-  Future<void> deliver(ObstacleAlert alert) async {
+  /// Haptic half of the alert — always runs regardless of `speakAlerts` on
+  /// the host controller, since a host screen (e.g. Live Run) that owns
+  /// speech for itself should still get the module's vibration language.
+  void vibrateFor(ObstacleAlert alert) {
     switch (alert.urgency) {
       case AlertUrgency.none:
         return;
@@ -41,10 +44,23 @@ class FeedbackService {
         break;
       case AlertUrgency.medium:
         _vibrate(pattern: const [0, 100, 80, 100], amplitude: 150);
-        _speak(_word(alert.direction));
         break;
       case AlertUrgency.high:
         _vibrate(duration: 400, amplitude: 255);
+        break;
+    }
+  }
+
+  /// Speech half of the alert — gated by the host controller's `speakAlerts`.
+  void speakFor(ObstacleAlert alert) {
+    switch (alert.urgency) {
+      case AlertUrgency.none:
+      case AlertUrgency.low:
+        return;
+      case AlertUrgency.medium:
+        _speak(_word(alert.direction));
+        break;
+      case AlertUrgency.high:
         _speak('${_word(alert.direction)}, stop');
         break;
     }

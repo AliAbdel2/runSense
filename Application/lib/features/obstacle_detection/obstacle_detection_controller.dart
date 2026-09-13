@@ -150,7 +150,8 @@ class ObstacleDetectionController extends ChangeNotifier {
 
       _lastAlert = alert;
       if (!_alerts.isClosed) _alerts.add(alert);
-      if (speakAlerts) await feedback.deliver(alert);
+      feedback.vibrateFor(alert);
+      if (speakAlerts) feedback.speakFor(alert);
       if (!_disposed) notifyListeners();
     } catch (e) {
       debugPrint('Obstacle frame error: $e');

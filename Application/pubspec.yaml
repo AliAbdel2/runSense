@@ -64,6 +64,11 @@ dependencies:
   # when the project moves off AGP 9.1.0.
   permission_handler: ^11.3.1
 
+  # Keeps the screen awake during a run — a pocketed/locked phone otherwise
+  # kills the camera stream mid-session. See pinning note above: verify with
+  # `flutter build apk --debug` after touching this given the AGP 9.1.0 ceiling.
+  wakelock_plus: ^1.2.8
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
