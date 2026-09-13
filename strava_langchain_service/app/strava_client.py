@@ -1,4 +1,4 @@
-"""Small read-only async client for the approved Strava REST integration."""
+"""Small async client for the approved Strava REST integration."""
 
 from __future__ import annotations
 
@@ -76,17 +76,18 @@ class StravaClient:
         base_url: str = "https://www.strava.com/api/v3",
         transport: httpx.AsyncBaseTransport | None = None,
     ):
-        if not access_token.strip():
-            raise StravaAPIError("STRAVA_ACCESS_TOKEN is not configured")
+        self._access_token = access_token.strip()
+        headers = {
+            "Accept": "application/json",
+            "User-Agent": "RunSense-Strava-Agent/1.0",
+        }
+        if self._access_token:
+            headers["Authorization"] = f"Bearer {self._access_token}"
         self._client = httpx.AsyncClient(
             base_url=base_url.rstrip("/"),
             transport=transport,
             timeout=15,
-            headers={
-                "Authorization": f"Bearer {access_token.strip()}",
-                "Accept": "application/json",
-                "User-Agent": "RunSense-Strava-Agent/1.0",
-            },
+            headers=headers,
         )
 
     async def __aenter__(self):
@@ -99,6 +100,8 @@ class StravaClient:
         await self._client.aclose()
 
     async def _get(self, path: str, *, params=None, expected: type[dict] | type[list]):
+        if not self._access_token:
+            raise StravaAPIError("STRAVA_ACCESS_TOKEN is not configured")
         for attempt in range(self.max_attempts):
             try:
                 response = await self._client.get(path, params=params)
@@ -122,6 +125,33 @@ class StravaClient:
                 raise StravaAPIError("Strava returned an unexpected response shape", response.status_code)
             return ProviderResponse(body, response.status_code, _rate_limits(response.headers))
         raise StravaAPIError("Strava request failed")
+
+    async def _post_multipart(self, path: str, *, data: dict, files: dict):
+        if not self._access_token:
+            raise StravaAPIError("STRAVA_ACCESS_TOKEN is not configured")
+        for attempt in range(self.max_attempts):
+            try:
+                response = await self._client.post(path, data=data, files=files)
+            except httpx.HTTPError as exc:
+                raise StravaAPIError("Strava upload failed") from exc
+            if (response.status_code == 429 or response.status_code >= 500) and attempt < self.max_attempts - 1:
+                try:
+                    delay = float(response.headers.get("Retry-After", 0.1 * 2**attempt))
+                except ValueError:
+                    delay = 0.1 * 2**attempt
+                await asyncio.sleep(min(max(delay, 0), 2))
+                continue
+            if response.status_code >= 400:
+                message = "Strava authentication failed" if response.status_code in (401, 403) else "Strava upload failed"
+                raise StravaAPIError(message, response.status_code)
+            try:
+                body = response.json()
+            except ValueError as exc:
+                raise StravaAPIError("Strava returned invalid JSON", response.status_code) from exc
+            if not isinstance(body, dict):
+                raise StravaAPIError("Strava returned an unexpected response shape", response.status_code)
+            return ProviderResponse(body, response.status_code, _rate_limits(response.headers))
+        raise StravaAPIError("Strava upload failed")
 
     async def get_athlete(self):
         return await self._get("/athlete", expected=dict)
@@ -170,3 +200,35 @@ class StravaClient:
 
     async def get_zones(self):
         return await self._get("/athlete/zones", expected=dict)
+
+    async def upload_activity(
+        self,
+        tcx: bytes,
+        *,
+        external_id: str,
+        name: str,
+        description: str | None = None,
+        trainer: bool = False,
+        commute: bool = False,
+    ):
+        if not tcx:
+            raise StravaInputError("TCX activity data is empty")
+        data = {
+            "data_type": "tcx",
+            "external_id": external_id,
+            "name": name,
+            "trainer": str(trainer).lower(),
+            "commute": str(commute).lower(),
+        }
+        if description:
+            data["description"] = description
+        return await self._post_multipart(
+            "/uploads",
+            data=data,
+            files={"file": (f"{external_id}.tcx", tcx, "application/vnd.garmin.tcx+xml")},
+        )
+
+    async def get_upload(self, upload_id: int):
+        if upload_id < 1:
+            raise StravaInputError("upload_id must be positive")
+        return await self._get(f"/uploads/{upload_id}", expected=dict)

@@ -114,6 +114,30 @@ class StravaService:
     async def zones(self):
         return (await self.client.get_zones()).as_dict()
 
+    async def upload_tcx(
+        self,
+        tcx: bytes,
+        *,
+        external_id: str,
+        name: str,
+        description: str | None = None,
+        trainer: bool = False,
+        commute: bool = False,
+    ):
+        return (
+            await self.client.upload_activity(
+                tcx,
+                external_id=external_id,
+                name=name,
+                description=description,
+                trainer=trainer,
+                commute=commute,
+            )
+        ).as_dict()
+
+    async def upload_status(self, upload_id: int):
+        return (await self.client.get_upload(upload_id)).as_dict()
+
     async def verify_completed_run(
         self,
         session_start: datetime,

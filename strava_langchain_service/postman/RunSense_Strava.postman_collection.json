@@ -16,6 +16,14 @@
           "}",
           "if (!pm.environment.get('session_start')) {",
           "  pm.environment.set('session_start', new Date(Date.now() - 86400000).toISOString());",
+          "}",
+          "if (!pm.environment.get('run_started_at')) {",
+          "  const start = Date.now();",
+          "  pm.environment.set('run_started_at', new Date(start).toISOString());",
+          "  pm.environment.set('sample_1_at', new Date(start).toISOString());",
+          "  pm.environment.set('sample_2_at', new Date(start + 5000).toISOString());",
+          "  pm.environment.set('sample_3_at', new Date(start + 10000).toISOString());",
+          "  pm.environment.set('run_finished_at', new Date(start + 12000).toISOString());",
           "}"
         ]
       }
@@ -69,6 +77,94 @@
           "name": "Verify Completed Run",
           "request": {"method": "GET", "url": "{{service_base_url}}/v1/strava/completed-run?session_start={{session_start}}&expected_distance_m={{expected_distance_m}}"},
           "event": [{"listen": "test", "script": {"exec": ["pm.test('verification completed', () => pm.response.to.have.status(200));"]}}]
+        }
+      ]
+    },
+    {
+      "name": "Live Run + Optional Strava Upload",
+      "auth": {"type": "bearer", "bearer": [{"key": "token", "value": "{{runsense_api_key}}", "type": "string"}]},
+      "item": [
+        {
+          "name": "1. Start Live Session",
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "body": {"mode": "raw", "raw": "{\n  \"name\": \"Accessible Morning Run\",\n  \"sport_type\": \"Run\",\n  \"started_at\": \"{{run_started_at}}\"\n}"},
+            "url": "{{service_base_url}}/v1/sessions"
+          },
+          "event": [{"listen": "test", "script": {"exec": [
+            "pm.test('session started', () => pm.response.to.have.status(201));",
+            "pm.environment.set('live_session_id', pm.response.json().session_id);"
+          ]}}]
+        },
+        {
+          "name": "2. Send GPS Samples",
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "body": {"mode": "raw", "raw": "{\n  \"samples\": [\n    {\"timestamp\": \"{{sample_1_at}}\", \"latitude\": 47.376900, \"longitude\": 8.541700, \"accuracy_m\": 5, \"altitude_m\": 408, \"heart_rate_bpm\": 140, \"cadence_spm\": 168},\n    {\"timestamp\": \"{{sample_2_at}}\", \"latitude\": 47.377000, \"longitude\": 8.541700, \"accuracy_m\": 5, \"altitude_m\": 409, \"heart_rate_bpm\": 144, \"cadence_spm\": 170},\n    {\"timestamp\": \"{{sample_3_at}}\", \"latitude\": 47.377100, \"longitude\": 8.541700, \"accuracy_m\": 5, \"altitude_m\": 410, \"heart_rate_bpm\": 148, \"cadence_spm\": 172}\n  ]\n}"},
+            "url": "{{service_base_url}}/v1/sessions/{{live_session_id}}/samples"
+          },
+          "event": [{"listen": "test", "script": {"exec": [
+            "pm.test('live metrics calculated', () => { pm.response.to.have.status(200); pm.expect(pm.response.json().live.distance_m).to.be.above(0); });"
+          ]}}]
+        },
+        {
+          "name": "3. Read Live Pace and Distance",
+          "request": {"method": "GET", "url": "{{service_base_url}}/v1/sessions/{{live_session_id}}/live"},
+          "event": [{"listen": "test", "script": {"exec": [
+            "pm.test('spoken pace is available', () => { const body = pm.response.json(); pm.response.to.have.status(200); pm.expect(body.current_pace_spoken).to.be.a('string'); });"
+          ]}}]
+        },
+        {
+          "name": "4. Finish Without Uploading",
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "body": {"mode": "raw", "raw": "{\n  \"at\": \"{{run_finished_at}}\"\n}"},
+            "url": "{{service_base_url}}/v1/sessions/{{live_session_id}}/finish"
+          },
+          "event": [{"listen": "test", "script": {"exec": [
+            "pm.test('finish does not publish', () => { const body = pm.response.json(); pm.response.to.have.status(200); pm.expect(body.strava_upload).to.eql(null); });"
+          ]}}]
+        },
+        {
+          "name": "5. Download TCX Preview",
+          "request": {"method": "GET", "url": "{{service_base_url}}/v1/sessions/{{live_session_id}}/export.tcx"},
+          "event": [{"listen": "test", "script": {"exec": [
+            "pm.test('TCX export returned', () => { pm.response.to.have.status(200); pm.expect(pm.response.text()).to.include('TrainingCenterDatabase'); });"
+          ]}}]
+        },
+        {
+          "name": "6. Verify Unconfirmed Upload Is Refused",
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "body": {"mode": "raw", "raw": "{\n  \"owner_confirmed\": false\n}"},
+            "url": "{{service_base_url}}/v1/sessions/{{live_session_id}}/strava-upload"
+          },
+          "event": [{"listen": "test", "script": {"exec": [
+            "pm.test('unconfirmed upload is refused', () => pm.response.to.have.status(409));"
+          ]}}]
+        },
+        {
+          "name": "7. Upload to Strava (Explicit Owner Command)",
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "body": {"mode": "raw", "raw": "{\n  \"owner_confirmed\": true,\n  \"description\": \"Recorded by RunSense\",\n  \"trainer\": false,\n  \"commute\": false\n}"},
+            "url": "{{service_base_url}}/v1/sessions/{{live_session_id}}/strava-upload"
+          },
+          "event": [{"listen": "test", "script": {"exec": [
+            "pm.test('upload accepted or a Strava scope error is clear', () => pm.expect([200, 502]).to.include(pm.response.code));"
+          ]}}]
+        },
+        {
+          "name": "8. Refresh Strava Upload Status",
+          "request": {"method": "GET", "url": "{{service_base_url}}/v1/sessions/{{live_session_id}}/strava-upload"},
+          "event": [{"listen": "test", "script": {"exec": [
+            "pm.test('upload status returned or prior upload is missing', () => pm.expect([200, 409, 502]).to.include(pm.response.code));"
+          ]}}]
         }
       ]
     },

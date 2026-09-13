@@ -1,4 +1,4 @@
-"""FastAPI surface for Postman and the LangChain Strava tools."""
+"""FastAPI surface for RunSense's LangChain integration tools."""
 
 from __future__ import annotations
 
@@ -8,12 +8,29 @@ from collections.abc import AsyncIterator, Callable
 from datetime import datetime
 from typing import Any
 
-from fastapi import Depends, FastAPI, HTTPException, Path, Query, Request
-from fastapi.responses import JSONResponse
+from fastapi import (
+    Depends,
+    FastAPI,
+    HTTPException,
+    Path,
+    Query,
+    Request,
+    WebSocket,
+    WebSocketDisconnect,
+)
+from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from .agent import AgentError, run_agent
+from .calendar_client import GoogleCalendarClient, GoogleCalendarError, GoogleCalendarInputError
+from .calendar_service import CalendarService
+from .calendar_tools import (
+    CreateCalendarSessionInput,
+    build_calendar_tools,
+)
 from .config import Settings
+from .live_sessions import LiveSessionConflict, LiveSessionManager, LiveSessionNotFound
+from .live_tools import build_live_tools, refresh_upload_status, upload_finished_session
 from .service import DEFAULT_STREAMS, StravaService
 from .strava_client import StravaAPIError, StravaClient, StravaInputError
 from .tools import build_strava_tools
@@ -31,18 +48,53 @@ class AgentRequest(StrictModel):
     question: str = Field(min_length=1, max_length=1000)
 
 
+class StartSessionRequest(StrictModel):
+    name: str = Field(default="RunSense Run", min_length=1, max_length=100)
+    sport_type: str = Field(default="Run", pattern="^(Run|TrailRun|VirtualRun)$")
+    started_at: datetime | None = None
+
+
+class LocationSample(StrictModel):
+    timestamp: datetime
+    latitude: float = Field(ge=-90, le=90)
+    longitude: float = Field(ge=-180, le=180)
+    accuracy_m: float = Field(default=10, gt=0, le=10_000)
+    altitude_m: float | None = Field(default=None, ge=-500, le=10_000)
+    heart_rate_bpm: int | None = Field(default=None, ge=20, le=250)
+    cadence_spm: int | None = Field(default=None, ge=0, le=300)
+
+
+class SampleBatch(StrictModel):
+    samples: list[LocationSample] = Field(min_length=1, max_length=200)
+
+
+class SessionTimeRequest(StrictModel):
+    at: datetime | None = None
+
+
+class StravaUploadRequest(StrictModel):
+    owner_confirmed: bool = False
+    name: str | None = Field(default=None, min_length=1, max_length=100)
+    description: str | None = Field(default=None, max_length=1000)
+    trainer: bool = False
+    commute: bool = False
+
+
 def create_app(
     *,
     settings: Settings | None = None,
     client_factory: Callable[..., StravaClient] = StravaClient,
+    calendar_client_factory: Callable[..., GoogleCalendarClient] = GoogleCalendarClient,
 ) -> FastAPI:
     settings = settings or Settings.from_env()
     app = FastAPI(
-        title="RunSense Strava LangChain Service",
-        version="1.0.0",
+        title="RunSense Strava + Calendar LangChain Service",
+        version="1.2.0",
         docs_url="/docs",
         redoc_url=None,
     )
+    live_sessions = LiveSessionManager()
+    app.state.live_sessions = live_sessions
 
     def authorize(request: Request):
         if not settings.api_key:
@@ -62,6 +114,18 @@ def create_app(
         finally:
             await client.close()
 
+    async def calendar_service(request: Request) -> AsyncIterator[CalendarService]:
+        authorize(request)
+        client = calendar_client_factory(
+            settings.google_calendar_access_token,
+            calendar_id=settings.google_calendar_id,
+            base_url=settings.google_calendar_api_base_url,
+        )
+        try:
+            yield CalendarService(client)
+        finally:
+            await client.close()
+
     @app.exception_handler(StravaAPIError)
     async def strava_error(_request: Request, exc: StravaAPIError):
         return JSONResponse(
@@ -77,22 +141,58 @@ def create_app(
     async def strava_input_error(_request: Request, exc: StravaInputError):
         return JSONResponse({"detail": exc.safe_message}, status_code=422)
 
+    @app.exception_handler(GoogleCalendarError)
+    async def calendar_error(_request: Request, exc: GoogleCalendarError):
+        return JSONResponse(
+            {
+                "detail": exc.safe_message,
+                "provider": "google_calendar",
+                "provider_status": exc.status_code,
+            },
+            status_code=503 if exc.status_code is None else 502,
+        )
+
+    @app.exception_handler(GoogleCalendarInputError)
+    async def calendar_input_error(_request: Request, exc: GoogleCalendarInputError):
+        return JSONResponse({"detail": exc.safe_message}, status_code=422)
+
     @app.exception_handler(AgentError)
     async def agent_error(_request: Request, exc: AgentError):
         return JSONResponse({"detail": str(exc)}, status_code=502)
+
+    @app.exception_handler(LiveSessionNotFound)
+    async def live_not_found(_request: Request, exc: LiveSessionNotFound):
+        return JSONResponse({"detail": str(exc)}, status_code=404)
+
+    @app.exception_handler(LiveSessionConflict)
+    async def live_conflict(_request: Request, exc: LiveSessionConflict):
+        return JSONResponse({"detail": str(exc)}, status_code=409)
 
     @app.get("/health")
     async def health():
         return {
             "status": "ok",
             "strava_configured": bool(settings.strava_access_token),
+            "google_calendar_configured": bool(settings.google_calendar_access_token),
             "langchain_configured": bool(settings.anthropic_api_key and settings.anthropic_model),
+            "live_sessions": "in_memory",
         }
 
+    def all_tools(strava: StravaService, calendar: CalendarService):
+        return (
+            build_strava_tools(strava)
+            + build_calendar_tools(calendar)
+            + build_live_tools(live_sessions, strava)
+        )
+
     @app.get("/v1/tools")
-    async def list_tools(request: Request, strava: StravaService = Depends(service)):
+    async def list_tools(
+        request: Request,
+        strava: StravaService = Depends(service),
+        calendar: CalendarService = Depends(calendar_service),
+    ):
         authorize(request)
-        tools = build_strava_tools(strava)
+        tools = all_tools(strava, calendar)
         return {
             "tools": [
                 {
@@ -109,8 +209,9 @@ def create_app(
         tool_name: str,
         body: ToolInvocation,
         strava: StravaService = Depends(service),
+        calendar: CalendarService = Depends(calendar_service),
     ):
-        tools = {item.name: item for item in build_strava_tools(strava)}
+        tools = {item.name: item for item in all_tools(strava, calendar)}
         selected = tools.get(tool_name)
         if selected is None:
             raise HTTPException(404, "Unknown tool")
@@ -121,10 +222,14 @@ def create_app(
         return {"tool": tool_name, "result": result}
 
     @app.post("/v1/agent/chat")
-    async def agent_chat(body: AgentRequest, strava: StravaService = Depends(service)):
+    async def agent_chat(
+        body: AgentRequest,
+        strava: StravaService = Depends(service),
+        calendar: CalendarService = Depends(calendar_service),
+    ):
         return await run_agent(
             body.question,
-            build_strava_tools(strava),
+            all_tools(strava, calendar),
             api_key=settings.anthropic_api_key,
             model=settings.anthropic_model,
         )
@@ -191,6 +296,121 @@ def create_app(
         return await strava.verify_completed_run(
             session_start, expected_distance_m, max_time_delta_hours
         )
+
+    @app.post("/v1/calendar/events")
+    async def create_calendar_event(
+        body: CreateCalendarSessionInput,
+        calendar: CalendarService = Depends(calendar_service),
+    ):
+        return await calendar.create_session(**body.model_dump())
+
+    @app.get("/v1/calendar/events/{event_id}")
+    async def get_calendar_event(
+        event_id: str = Path(min_length=5, max_length=1024),
+        calendar: CalendarService = Depends(calendar_service),
+    ):
+        return await calendar.get_session(event_id)
+
+    @app.get("/v1/calendar/events/{event_id}/guide")
+    async def get_calendar_guide_status(
+        event_id: str = Path(min_length=5, max_length=1024),
+        guide_email: str = Query(min_length=3, max_length=320),
+        calendar: CalendarService = Depends(calendar_service),
+    ):
+        return await calendar.check_guide(event_id, guide_email)
+
+    @app.post("/v1/sessions", status_code=201)
+    async def start_live_session(body: StartSessionRequest, request: Request):
+        authorize(request)
+        return await live_sessions.start(
+            name=body.name,
+            sport_type=body.sport_type,
+            started_at=body.started_at,
+        )
+
+    @app.get("/v1/sessions/{session_id}/live")
+    async def get_live_session(session_id: str, request: Request):
+        authorize(request)
+        return await live_sessions.get(session_id)
+
+    @app.post("/v1/sessions/{session_id}/samples")
+    async def add_live_samples(session_id: str, body: SampleBatch, request: Request):
+        authorize(request)
+        return await live_sessions.add_samples(
+            session_id, [sample.model_dump() for sample in body.samples]
+        )
+
+    @app.post("/v1/sessions/{session_id}/pause")
+    async def pause_live_session(session_id: str, body: SessionTimeRequest, request: Request):
+        authorize(request)
+        return await live_sessions.pause(session_id, body.at)
+
+    @app.post("/v1/sessions/{session_id}/resume")
+    async def resume_live_session(session_id: str, body: SessionTimeRequest, request: Request):
+        authorize(request)
+        return await live_sessions.resume(session_id, body.at)
+
+    @app.post("/v1/sessions/{session_id}/finish")
+    async def finish_live_session(session_id: str, body: SessionTimeRequest, request: Request):
+        authorize(request)
+        return await live_sessions.finish(session_id, body.at)
+
+    @app.get("/v1/sessions/{session_id}/export.tcx")
+    async def export_live_session(session_id: str, request: Request):
+        authorize(request)
+        content = await live_sessions.export_tcx(session_id)
+        return Response(
+            content=content,
+            media_type="application/vnd.garmin.tcx+xml",
+            headers={"Content-Disposition": f'attachment; filename="runsense-{session_id}.tcx"'},
+        )
+
+    @app.post("/v1/sessions/{session_id}/strava-upload")
+    async def upload_live_session(
+        session_id: str,
+        body: StravaUploadRequest,
+        strava: StravaService = Depends(service),
+    ):
+        return await upload_finished_session(
+            live_sessions,
+            strava,
+            session_id=session_id,
+            owner_confirmed=body.owner_confirmed,
+            name=body.name,
+            description=body.description,
+            trainer=body.trainer,
+            commute=body.commute,
+        )
+
+    @app.get("/v1/sessions/{session_id}/strava-upload")
+    async def get_live_session_upload(
+        session_id: str,
+        strava: StravaService = Depends(service),
+    ):
+        return await refresh_upload_status(live_sessions, strava, session_id)
+
+    @app.websocket("/v1/sessions/{session_id}/stream")
+    async def live_session_stream(websocket: WebSocket, session_id: str):
+        expected = f"Bearer {settings.api_key}"
+        if not settings.api_key or not secrets.compare_digest(
+            websocket.headers.get("authorization", ""), expected
+        ):
+            await websocket.close(code=4401)
+            return
+        try:
+            queue = await live_sessions.subscribe(session_id)
+        except LiveSessionNotFound:
+            await websocket.close(code=4404)
+            return
+        await websocket.accept()
+        try:
+            await websocket.send_json(await live_sessions.get(session_id))
+            while True:
+                await websocket.send_json(await queue.get())
+        except WebSocketDisconnect:
+            pass
+        finally:
+            await live_sessions.unsubscribe(session_id, queue)
 
     return app
 

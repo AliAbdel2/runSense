@@ -1,7 +1,7 @@
 [project]
 name = "runsense-strava-langchain"
 version = "1.0.0"
-description = "Standalone read-only Strava tools for RunSense, LangChain, and Postman"
+description = "RunSense GPS, Strava, and Google Calendar tools for LangChain and Postman"
 requires-python = ">=3.11"
 dependencies = [
   "fastapi>=0.115,<1",
