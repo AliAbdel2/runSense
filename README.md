@@ -1,131 +1,170 @@
 # RunSense
 
-RunSense is an accessible running coach for blind and low-vision runners. It
-combines a Flutter mobile app with a FastAPI backend to create training plans,
-brief the runner by voice, track a live run, warn about obstacles, and save the
-completed session.
+RunSense is an accessible running-coach prototype for blind and low-vision
+runners. It turns recent training history and guide availability into an
+explainable seven-day plan, adapts that plan when circumstances change, and
+reads key information aloud.
 
-## Two-minute demo
+[View the timed two-minute demo](https://drive.google.com/drive/folders/1Mag989gHF5CjCyHXeaRw-CQGyMqW22q-?usp=sharing).
 
-[Watch the two-minute demo](DEMO_URL_HERE)
-
-Replace `DEMO_URL_HERE` with the published YouTube, Loom, or Google Drive URL
-before submission.
+> RunSense is an assistive planning prototype. It does not replace a sighted
+> guide, navigation aid, emergency service, clinician, or qualified coach.
 
 ## What is built
 
-### Flutter app
+- A **Flutter client** with Home, Week Plan, Live Run, and Session Summary
+  screens. It includes spoken coaching, large controls, light and dark themes,
+  and a deterministic demo of GPS updates and obstacle alerts.
+- A **FastAPI backend** that creates and persists seven-day plans, recalculates
+  after a guide cancellation or missed session, and exposes the plan's
+  validation evidence.
+- Four explicit planning checks: weekly-volume cap, hard-day spacing, guide
+  requirement for outdoor sessions, and concise spoken summaries.
+- A bounded **LangChain/Claude coaching agent** that can use typed planning,
+  Strava, and Calendar tools when credentials are configured.
+- Live-session APIs for GPS samples, pause/resume/finish, aggregate persistence,
+  TCX export, and owner-confirmed Strava upload.
+- SQLAlchemy models and Alembic migrations for athletes, activities, plans,
+  sessions, alerts, and tool traces. SQLite is the included local database;
+  another SQLAlchemy database can be configured when its driver is installed.
 
-- Accessible home, weekly-plan, coach-briefing, live-run, and session-summary
-  screens with large controls, semantic labels, and spoken feedback.
-- Real backend clients for plan generation, Claude coach chat, live-session
-  start/finish, and GPS sample uploads.
-- Real device GPS tracking for distance and pace, including pace coaching.
-- On-device camera obstacle detection with Google ML Kit, directional warnings,
-  urgency levels, vibration, and spoken alerts. Web builds safely fall back to
-  mock perception because the camera pipeline targets Android/iOS.
-- ElevenLabs cloud speech with device text-to-speech as an offline fallback.
-- Mock services retained only for deterministic widget tests through the
-  `RunSenseApp(forceMocks: true)` test seam.
-
-### FastAPI backend
-
-- Deterministic seven-day plan generation with volume, hard-day-spacing,
-  guide, and spoken-summary validation before persistence.
-- Claude tool-use coach over planning, Strava, and Google Calendar operations.
-- Live-session lifecycle endpoints for GPS samples, pause/resume, aggregate
-  distance and pace, TCX export, and confirmed Strava upload.
-- Typed provider clients, SQLAlchemy repositories, SQLite/Postgres support,
-  Alembic migrations, bearer protection for `/v1/*`, and generated API docs.
-
-The hosted API is available at
-[runsense-x658.onrender.com](https://runsense-x658.onrender.com/), with
-[health](https://runsense-x658.onrender.com/health) and
-[API documentation](https://runsense-x658.onrender.com/api/docs).
-
-## External connections
-
-| Service | Purpose | Current status |
-| --- | --- | --- |
-| Anthropic Claude | Coach conversation and tool selection | Connected on the Render backend |
-| Google Calendar | Create, verify, and check guide status for training events | Connected on the Render backend |
-| ElevenLabs | Natural spoken coaching and safety alerts | Connected from the Flutter app when `env.json` is supplied |
-| Strava | Athlete/activity reads, run matching, and confirmed TCX upload | Integration built; credentials are not currently configured on Render |
-
-Google ML Kit performs obstacle inference locally on the phone; camera frames
-and GPS coordinates are not stored as raw provider data by the backend.
-
-## Run the app
-
-### Hosted backend
-
-Requirements: Flutter, an Android emulator or phone, and valid local
-credentials. From the repository root:
-
-```sh
-cd Application
-cp env.example.json env.json
+```text
+Flutter client
+    -> FastAPI routes
+    -> services and independently validated planning rules
+    -> repositories -> SQLAlchemy -> SQLite
+    -> optional provider clients -> Strava, Google Calendar, Claude, ElevenLabs
 ```
 
-Set `RUNSENSE_API_KEY` in `env.json` to the same value configured on Render,
-then run:
+## External apps and services
+
+| Integration                        | What RunSense uses it for                                                                                                                                                                          | Current evidence                       |
+| ---------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------- |
+| Strava                             | Reads an athlete's profile and running history, normalizes activity summaries without GPS coordinates, verifies completed runs, and uploads a finished TCX only after explicit owner confirmation. | The real HTTP adapter is implemented.  |
+| Google Calendar                    | Creates or updates deterministic workout events, reads them back, and checks a guide's RSVP. Every write requires explicit confirmation and is reconciled to avoid duplicates.                     | The real HTTP adapter is implemented.  |
+| Anthropic Claude through LangChain | Selects from typed planning, Strava, and Calendar tools for the coach chat. The deterministic plan endpoint does not require Claude.                                                               | The agent loop is tested successfully. |
+| ElevenLabs                         | Optionally produces a more natural Flutter voice. If it is unavailable, the client falls back to on-device/browser text to speech.                                                                 | Tested and running successfully.       |
+
+Provider-backed `/v1/*` routes can be protected with `RUNSENSE_API_KEY`.
+Strava uploads and Calendar writes are never implicit. Configuration examples
+are in [.env.example](.env.example); the file is a reference and is not loaded
+automatically by the Python application.
+
+## Run the backend
+
+Requirements: Python 3.11 or newer.
+
+From the repository root:
 
 ```sh
-flutter pub get
-flutter run --dart-define-from-file=env.json
+python3 -m venv .venv
+.venv/bin/python -m pip install -r requirements.lock
+.venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
 ```
 
-`env.json` is ignored by Git. The checked-in example already points to the
-Render backend. A full restart is required after changing Dart defines; hot
-reload does not replace them.
+Then open the [local API documentation](http://127.0.0.1:8000/api/docs) or
+check [the local health endpoint](http://127.0.0.1:8000/health). No external
+credentials are needed to call `POST /api/plan` or run the automated tests.
+Local startup creates missing SQLite tables automatically.
 
-### Local backend
+To manage the schema explicitly:
 
-Create `.env` from `.env.example`, add the provider credentials you need, and
-start the container:
+```sh
+.venv/bin/alembic upgrade head
+```
+
+Docker is also supported:
 
 ```sh
 cp .env.example .env
 docker compose up --build
 ```
 
-For an Android emulator, set `RUNSENSE_API_BASE_URL` in `Application/env.json`
-to `http://10.0.2.2:8000`. The API docs are then available at
-`http://127.0.0.1:8000/api/docs` on the host.
+## Run the Flutter app
 
-## Testing
-
-Backend verification:
-
-```sh
-python -m pytest -q
-python -m compileall -q app migrations
-```
-
-The current backend run passes **22 tests** covering plan validation and
-persistence, authenticated routes, live GPS-session recording and TCX export,
-agent behavior, Calendar safety gates, and Strava normalization.
-
-Flutter verification commands:
+Requirements: a Flutter SDK compatible with Dart `^3.13.3` and an Android
+emulator. Start the backend first, then run:
 
 ```sh
 cd Application
+flutter pub get
+flutter run
+```
+
+The checked-in client URL is `http://10.0.2.2:8000`, Android Emulator's alias
+for the development computer. For a physical device or Flutter web, update
+`Application/lib/services/api_config.dart` to an address that the device or
+browser can reach. Keep the backend on a trusted network when binding it beyond
+localhost.
+
+ElevenLabs is optional. To enable it, copy `Application/env.example.json` to
+the gitignored `Application/env.json`, insert a valid key, and run:
+
+```sh
+flutter run --dart-define-from-file=env.json
+```
+
+Without that file, RunSense uses the platform's text-to-speech voice.
+
+## Configure live integrations
+
+Export only the providers you intend to use in the shell that starts Uvicorn:
+
+```sh
+export RUNSENSE_API_KEY="choose-a-strong-local-token"
+export STRAVA_ACCESS_TOKEN="..."
+export GOOGLE_CALENDAR_ACCESS_TOKEN="..."
+export GOOGLE_CALENDAR_ID="primary"
+export ANTHROPIC_API_KEY="..."
+export ANTHROPIC_MODEL="..."
+```
+
+Do not commit tokens. If `RUNSENSE_API_KEY` is set, clients calling `/v1/*`
+must send `Authorization: Bearer <token>`. The Flutter agent-chat client does
+not yet send that header, so either leave the API key unset for an isolated
+local demo or add authenticated client configuration before exposing the
+backend.
+
+## How it was tested
+
+Run the backend checks from the repository root:
+
+```sh
+.venv/bin/python -m pytest -q
+.venv/bin/python -m compileall -q app migrations
+```
+
+The current backend suite passes **22 tests**. It covers plan generation and
+persistence, all four planning rules, authenticated provider routes, Strava
+normalization, session lifecycle and TCX export, Calendar confirmation, and
+the LangChain tool loop.
+
+Run the Flutter checks from `Application/`:
+
+```sh
 flutter analyze
 flutter test
-flutter build apk --debug
 ```
 
-The obstacle pipeline was previously exercised on an Android emulator and the
-Flutter test suite uses forced mocks for repeatability. After the latest live
-backend/GPS wiring, backend tests pass, but Flutter analysis/tests still need to
-be rerun on a machine with the Flutter SDK installed.
+The Flutter project contains two widget tests for the Home screen and the full
+deterministic Start Session -> spoken alert sequence -> End Session -> summary
+flow. They also query semantic labels for the live and summary alert counts.
 
-## Repository layout
+In addition to that, the app was tested in the home against real obstacles (e.g. a chair, and other house goods) and the testing was successful.
 
-```text
-app/          FastAPI routes, services, repositories, and models
-Application/ Flutter mobile client
-migrations/  Alembic database migrations
-tests/       Backend test suite
-dashboard/   Read-only Streamlit database viewer
-```
+## Accessibility
+
+- Controls use text labels and semantic descriptions rather than relying on
+  icons or colour alone.
+- The interface supports the system light/dark theme and uses large primary
+  touch targets.
+- Important plans, alerts, and session results can be spoken; new speech
+  interrupts stale cues so urgent information is not queued behind it.
+- The demo walkthrough includes the exact spoken script as a transcript. The
+  published video should include accurate captions and visible focus states.
+- Automated semantics checks supplement, but do not replace, testing with
+  blind and low-vision runners using TalkBack or VoiceOver.
+
+## More documentation
+
+- [Two-minute demo script and transcript](https://drive.google.com/drive/folders/1Mag989gHF5CjCyHXeaRw-CQGyMqW22q-?usp=sharing)
