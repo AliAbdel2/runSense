@@ -4,6 +4,8 @@ import 'package:provider/provider.dart';
 import 'app_config.dart';
 import 'screens/home_screen.dart';
 import 'services/agent_chat_service.dart';
+import 'services/live/live_agent_chat_service.dart';
+import 'services/live/live_plan_service.dart';
 import 'services/location_service.dart';
 import 'services/mock/mock_agent_chat_service.dart';
 import 'services/mock/mock_location_service.dart';
@@ -27,30 +29,26 @@ class RunSenseApp extends StatelessWidget {
     return MultiProvider(
       providers: [
         Provider<PlanService>(
-          create: (_) => useMock
-              ? MockPlanService()
-              : throw UnimplementedError('LivePlanService not wired yet'),
+          create: (_) => useMockPlan ? MockPlanService() : LivePlanService(),
         ),
         Provider<SessionService>(
-          create: (_) => useMock
+          create: (_) => useMockSession
               ? MockSessionService()
               : throw UnimplementedError('LiveSessionService not wired yet'),
         ),
         Provider<PerceptionService>(
-          create: (_) => useMock
+          create: (_) => useMockPerception
               ? MockPerceptionService()
               : throw UnimplementedError('LivePerceptionService not wired yet'),
         ),
         Provider<AgentChatService>(
-          create: (_) => useMock
-              ? MockAgentChatService()
-              : throw UnimplementedError('LiveAgentChatService not wired yet'),
+          create: (_) => useMockAgentChat ? MockAgentChatService() : LiveAgentChatService(),
         ),
         // Not yet consumed by any screen — added ahead of the real GPS work
         // (see obstacle_detection_module_plan.md for the camera side) so the
         // eventual LiveLocationService is a one-file swap.
         Provider<LocationService>(
-          create: (_) => useMock
+          create: (_) => useMockLocation
               ? MockLocationService()
               : throw UnimplementedError('LiveLocationService not wired yet'),
         ),
