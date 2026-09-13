@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import 'app_config.dart';
+import 'features/obstacle_detection/obstacle_detection_entry.dart';
 import 'screens/home_screen.dart';
 import 'services/agent_chat_service.dart';
 import 'services/mock/mock_agent_chat_service.dart';
@@ -24,6 +25,10 @@ class RunSenseApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MultiProvider(
       providers: [
+        // TtsService is first because PerceptionService reads it during
+        // creation — MultiProvider nests in list order, so a provider can only
+        // read the ones declared above it.
+        Provider<TtsService>(create: (_) => TtsService()),
         Provider<PlanService>(
           create: (_) => useMock
               ? MockPlanService()
@@ -35,16 +40,15 @@ class RunSenseApp extends StatelessWidget {
               : throw UnimplementedError('LiveSessionService not wired yet'),
         ),
         Provider<PerceptionService>(
-          create: (_) => useMock
+          create: (ctx) => useMock
               ? MockPerceptionService()
-              : throw UnimplementedError('LivePerceptionService not wired yet'),
+              : createLivePerceptionService(ctx.read<TtsService>()),
         ),
         Provider<AgentChatService>(
           create: (_) => useMock
               ? MockAgentChatService()
               : throw UnimplementedError('LiveAgentChatService not wired yet'),
         ),
-        Provider<TtsService>(create: (_) => TtsService()),
       ],
       child: MaterialApp(
         title: 'RunSense',
@@ -53,6 +57,9 @@ class RunSenseApp extends StatelessWidget {
           useMaterial3: true,
         ),
         home: const HomeScreen(),
+        routes: {
+          obstacleDetectionRoute: buildObstacleDetectionScreen,
+        },
       ),
     );
   }

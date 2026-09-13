@@ -51,3 +51,48 @@
 - **Known web-target quirk:** running in Chrome, the console logs `[object SpeechSynthesisErrorEvent]` on the auto-announce — Chrome's Web Speech API can refuse to speak without a prior user gesture on the page. Not a code bug; native `flutter_tts` on a real device doesn't have this restriction. Re-verify speech actually plays once tested on a phone.
 
 **Next checkpoint (4):** build the Live Run screen (plan section 6.2) — zone indicator, subscribe to `PerceptionService.alertStream()`, speak alerts via `TtsService.interruptAndSpeak()` for DANGER tier, haptic feedback.
+
+## Phase 2 — Obstacle detection module (camera + ML Kit)
+
+Built `obstacle_detection_module_plan.md` Phase 1 (the MVP). Full write-up of
+what changed and why is in **`../summary.md`**; device test plan is in
+**`../testing/OBSTACLE-DETECTION-phase1/testing-guide.md`**. Both live at the
+repo root so one task keeps its artifacts in one place.
+
+- **Environment:** Flutter was not installed on this Mac (the earlier notes in
+  this file describe a Windows machine). Installed stable **3.47.4 / Dart 3.13.3**
+  to `~/development/flutter`. Android SDK already present at
+  `~/Library/Android/sdk`. **Full Xcode and CocoaPods are still missing** — only
+  Command Line Tools — so nothing iOS has been built.
+- **New:** `lib/features/obstacle_detection/` — models, `CameraService`,
+  `InputImageConverter`, `DetectionService`, `FeedbackService`,
+  `ObstacleDetectionController`, `ObstacleDetectionScreen`, plus
+  `LivePerceptionService` (the `PerceptionService` implementation this plan's
+  section 10 anticipated) and a three-file conditional-import entry point.
+- **Modified:** `pubspec.yaml` (camera, ML Kit, vibration, permission_handler),
+  `main.dart` (TtsService moved to the top of the provider list, live perception
+  wired behind `useMock`, `/obstacle-detection` route), `home_screen.dart` (a
+  third button), Android manifest + `build.gradle.kts`.
+- **Deviations from the module plan (all argued in `summary.md` §4):** shared the
+  existing `TtsService` instead of a second `FlutterTts`; high-urgency alerts
+  repeat on a 700 ms cadence rather than every analysed frame; the whole module
+  sits behind a `dart:io` conditional import so the Chrome demo build keeps
+  working; reused `BigActionButton`; added lifecycle/error/re-entrancy handling
+  the plan omits.
+- **Verified:** `flutter analyze` (no issues), `flutter test` (passing),
+  `flutter build apk --debug` (succeeds), `flutter build web --release`
+  (succeeds). Both sides of the platform guard checked in the built output: the
+  web bundle contains the stub and none of the pipeline, the APK ships
+  `libmlkitcommonpipeline.so` for all three ABIs.
+- **Dependency gotcha, read `../summary.md` §7 before touching `pubspec.yaml`:**
+  the module plan's pinned versions don't build (plugins on `compileSdk 33` are a
+  hard error under AGP 9.1.0), but neither does simply taking latest —
+  `permission_handler` 13.x wants SDK 37, which AGP 9.1.0 can't resolve. It is
+  pinned at ^11.3.1 deliberately, with the reason written next to the pin.
+- **NOT verified:** nothing has run on a phone. Every claim about escalation,
+  direction, throttling and haptics is by construction. iOS is entirely unbuilt.
+  The four tuning constants in `obstacle_detection_controller.dart` are
+  guesses — plan §13 step 10 exists to replace them with measured values.
+
+**Next:** the Live Run screen (checkpoint 4 of `runsense_flutter_plan.md`) is
+still outstanding and is what `LivePerceptionService` is waiting to feed.

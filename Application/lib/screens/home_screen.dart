@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../features/obstacle_detection/obstacle_detection_entry.dart';
 import '../models/session.dart';
 import '../services/agent_chat_service.dart';
 import '../services/plan_service.dart';
@@ -123,6 +124,16 @@ class _HomeScreenState extends State<HomeScreen> {
                       primary: false,
                       onPressed: _askingCoach ? null : _askCoach,
                     ),
+                    if (obstacleDetectionSupported) ...[
+                      const SizedBox(height: 16),
+                      BigActionButton(
+                        label: 'OBSTACLE DETECTION',
+                        semanticLabel: 'Open obstacle detection',
+                        primary: false,
+                        onPressed: () => Navigator.of(context)
+                            .pushNamed(obstacleDetectionRoute),
+                      ),
+                    ],
                   ],
                 ),
         ),

@@ -39,6 +39,24 @@ dependencies:
   flutter_tts: ^4.2.0
   intl: ^0.19.0
 
+  # Obstacle detection module (obstacle_detection_module_plan.md §3).
+  # Android/iOS only — everything that touches these is behind the conditional
+  # import in lib/features/obstacle_detection/obstacle_detection_entry.dart so
+  # the web build keeps working.
+  # NB: the plan's pinned versions (camera 0.11 / mlkit 0.15 / vibration 2.0 /
+  # permission_handler 11.3) resolve, but do NOT build on this toolchain —
+  # AGP 9 rejects plugin modules still compiling against android-33. Upgraded.
+  camera: ^0.12.1                        # camera preview + frame stream
+  google_mlkit_object_detection: ^0.17.1 # on-device detection + tracking
+  google_mlkit_commons: ^0.13.0          # InputImage types
+  vibration: ^3.2.1                      # haptics with amplitude control
+  # Pinned BELOW latest on purpose: permission_handler 13.x pulls
+  # permission_handler_android 14.x, which compiles against SDK 37 — a version
+  # AGP 9.1.0 (pinned in android/settings.gradle.kts) cannot resolve. 11.x gives
+  # permission_handler_android 12.1.0 at compileSdk 34, which builds. Revisit
+  # when the project moves off AGP 9.1.0.
+  permission_handler: ^11.3.1            # runtime camera permission
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
