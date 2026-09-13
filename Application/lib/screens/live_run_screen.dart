@@ -151,7 +151,22 @@ class _LiveRunScreenState extends State<LiveRunScreen> {
         : '${_tierLabel(alert.tier)} alert. ${alert.utterance}';
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Live Run')),
+      appBar: AppBar(
+        title: const Text('Live Run'),
+        // Custom leading, not AccessibleBackButton: leaving via the back
+        // arrow should end the session the same way "END SESSION" does
+        // (stop simulation/TTS, record the CompletedSession) rather than a
+        // bare pop.
+        leading: Semantics(
+          button: true,
+          label: 'End session and go back',
+          child: IconButton(
+            icon: const Icon(Icons.arrow_back),
+            constraints: const BoxConstraints(minWidth: 64, minHeight: 64),
+            onPressed: _ending ? null : _endSession,
+          ),
+        ),
+      ),
       body: SafeArea(
         child: Padding(
           padding: const EdgeInsets.all(24),

@@ -58,12 +58,15 @@ class _HomeScreenState extends State<HomeScreen> {
     final tts = context.read<TtsService>();
     await tts.speak('Starting session: ${today.description}');
     if (!mounted) return;
-    // Full checkpoint 6 nav (returning to Home with the adapted plan after a
-    // replan) isn't built yet — this is just enough to reach and test the
-    // Live Run screen. LiveRunScreen itself calls SessionService.startSession().
+    // LiveRunScreen calls SessionService.startSession() itself once pushed.
     await Navigator.of(context).push(
       MaterialPageRoute(builder: (_) => LiveRunScreen(plannedSessionId: today.id)),
     );
+    // Ending the run can leave the plan in a different state (e.g. a replan
+    // happened, or a future checkpoint has endSession() adapt tomorrow's
+    // session) — reload so Home always shows the current plan on return.
+    if (!mounted) return;
+    await _loadAndAnnounce();
   }
 
   Future<void> _askCoach() async {
@@ -134,8 +137,11 @@ class _HomeScreenState extends State<HomeScreen> {
                       ),
                     const Spacer(),
                     if (_coachReply != null) ...[
-                      Text(_coachReply!,
-                          style: Theme.of(context).textTheme.bodyLarge),
+                      Semantics(
+                        liveRegion: true,
+                        child: Text(_coachReply!,
+                            style: Theme.of(context).textTheme.bodyLarge),
+                      ),
                       const SizedBox(height: 16),
                     ],
                     BigActionButton(

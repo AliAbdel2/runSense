@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart';
 import 'package:provider/provider.dart';
 
 import '../models/session.dart';
 import '../services/plan_service.dart';
 import '../services/tts_service.dart';
+import '../widgets/accessible_back_button.dart';
 import '../widgets/guide_status_chip.dart';
 
 /// Week Plan screen (plan section 6.3): read-only list of PlannedSessions,
@@ -72,7 +74,7 @@ class _WeekPlanScreenState extends State<WeekPlanScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Week Plan')),
+      appBar: AppBar(title: const Text('Week Plan'), leading: const AccessibleBackButton()),
       body: SafeArea(
         child: _loading
             ? const Center(child: CircularProgressIndicator())
@@ -88,6 +90,12 @@ class _WeekPlanScreenState extends State<WeekPlanScreen> {
                         button: true,
                         label:
                             '${session.date}, ${_typeLabel(session.type)}. ${session.description}. Long press to request a replan.',
+                        customSemanticsActions: _replanning
+                            ? null
+                            : {
+                                const CustomSemanticsAction(label: 'Request replan'):
+                                    () => _requestReplan(session),
+                              },
                         child: InkWell(
                           onLongPress: _replanning ? null : () => _requestReplan(session),
                           borderRadius: BorderRadius.circular(12),
