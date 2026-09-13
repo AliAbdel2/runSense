@@ -15,7 +15,16 @@ class TtsService {
   final FlutterTts _tts = FlutterTts();
   final AudioPlayer _player = AudioPlayer();
   final ElevenLabsClient _cloud = ElevenLabsClient();
-  bool _speaking = false;
+
+  /// When we stop believing an in-flight utterance, even with no callback.
+  DateTime? _speakingUntil;
+
+  /// Longest we ever assume a completion callback is still coming.
+  ///
+  /// flutter_tts drops completion callbacks on some platforms/engines, and
+  /// callers skip speech while [isSpeaking] — so without this cap one missed
+  /// callback would silence every later alert for the rest of the run.
+  static const _maxUtterance = Duration(seconds: 5);
 
   TtsService() {
     _tts.setVolume(1.0);
@@ -30,8 +39,10 @@ class TtsService {
     // already lands near a natural pace. This only matters for the
     // fallback path (no ElevenLabs key, or a failed request).
     _tts.setSpeechRate(kIsWeb ? 0.95 : 0.5);
-    _tts.setCompletionHandler(() => _speaking = false);
-    _player.onPlayerComplete.listen((_) => _speaking = false);
+    _tts.setCompletionHandler(_finished);
+    _tts.setCancelHandler(_finished);
+    _tts.setErrorHandler((_) => _finished());
+    _player.onPlayerComplete.listen((_) => _finished());
     _pickNaturalVoice();
   }
 
@@ -85,18 +96,30 @@ class TtsService {
     }
   }
 
-  bool get isSpeaking => _speaking;
+  void _finished() => _speakingUntil = null;
+
+  bool get isSpeaking {
+    final until = _speakingUntil;
+    if (until == null) return false;
+    if (!DateTime.now().isBefore(until)) {
+      _speakingUntil = null; // callback never arrived — assume it finished
+      return false;
+    }
+    return true;
+  }
 
   Future<void> speak(String text) async {
-    _speaking = true;
+    _speakingUntil = DateTime.now().add(_maxUtterance);
     final audio = await _cloud.synthesize(text);
     if (audio != null) {
+      _speakingUntil = DateTime.now().add(_maxUtterance);
       await _player.play(BytesSource(audio));
       return;
     }
     // No key configured, or the ElevenLabs request failed (offline,
     // rate-limited, etc) — still speaks, just via the less natural
     // on-device voice rather than going silent.
+    _speakingUntil = DateTime.now().add(_maxUtterance);
     await _tts.speak(text);
   }
 
@@ -118,6 +141,6 @@ class TtsService {
       await _player.stop();
     }
     await _tts.stop();
-    _speaking = false;
+    _speakingUntil = null;
   }
 }

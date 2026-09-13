@@ -2,14 +2,11 @@
 /// data — no screen code should ever check these directly.
 ///
 /// Split per-service (rather than one flag) because they go live on
-/// different schedules: Plan and AgentChat are backed by a real FastAPI
-/// endpoint today; Session/Perception/Location are not (Session is entangled
-/// with the not-yet-built Perception pipeline in LiveRunScreen, and Location
-/// is mid-flight GPS groundwork) — flipping one global flag would make the
-/// app throw UnimplementedError on startup the moment any one of those
-/// wasn't ready.
+/// different schedules. Plan and AgentChat use the FastAPI backend, while
+/// Session, Plan, and AgentChat use FastAPI. Location uses the device GPS, and
+/// Perception uses the live camera pipeline on Android/iOS with a web fallback.
 const bool useMockPlan = false;
 const bool useMockAgentChat = false;
-const bool useMockSession = true;
-const bool useMockPerception = true;
-const bool useMockLocation = true;
+const bool useMockSession = false;
+const bool useMockPerception = false;
+const bool useMockLocation = false;

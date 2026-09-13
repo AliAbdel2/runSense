@@ -146,6 +146,79 @@ User asked what was left and to finish it. Went through every "not yet verified"
 5. **Any real `Live*Service`** (plan, session, agent chat, perception, location) — all need either a real backend or a physical device/camera/GPS to implement against; nothing here changes that.
 6. The small `WeekPlanScreen` semantics de-duplication noted above — a real but minor cleanup, left for a future pass since fixing it needs a small label-text change, not just a flag flip.
 
+## Phase 2 — Obstacle detection module (camera + ML Kit)
+
+Built `obstacle_detection_module_plan.md` Phase 1 (the MVP). Full write-up of
+what changed and why is in **`../summary.md`**; device test plan is in
+**`../testing/OBSTACLE-DETECTION-phase1/testing-guide.md`**. Both live at the
+repo root so one task keeps its artifacts in one place.
+
+- **Environment:** Flutter was not installed on this Mac (the earlier notes in
+  this file describe a Windows machine). Installed stable **3.47.4 / Dart 3.13.3**
+  to `~/development/flutter`. Android SDK already present at
+  `~/Library/Android/sdk`. **Full Xcode and CocoaPods are still missing** — only
+  Command Line Tools — so nothing iOS has been built.
+- **New:** `lib/features/obstacle_detection/` — models, `CameraService`,
+  `InputImageConverter`, `DetectionService`, `FeedbackService`,
+  `ObstacleDetectionController`, `ObstacleDetectionScreen`, plus
+  `LivePerceptionService` (the `PerceptionService` implementation this plan's
+  section 10 anticipated) and a three-file conditional-import entry point.
+- **Modified:** `pubspec.yaml` (camera, ML Kit, vibration, permission_handler),
+  `main.dart` (TtsService moved to the top of the provider list, live perception
+  wired behind `useMock`, `/obstacle-detection` route), `home_screen.dart` (a
+  third button), Android manifest + `build.gradle.kts`.
+- **Deviations from the module plan (all argued in `summary.md` §4):** shared the
+  existing `TtsService` instead of a second `FlutterTts`; high-urgency alerts
+  repeat on a 700 ms cadence rather than every analysed frame; the whole module
+  sits behind a `dart:io` conditional import so the Chrome demo build keeps
+  working; reused `BigActionButton`; added lifecycle/error/re-entrancy handling
+  the plan omits.
+- **Verified:** `flutter analyze` (no issues), `flutter test` (passing),
+  `flutter build apk --debug` (succeeds), `flutter build web --release`
+  (succeeds). Both sides of the platform guard checked in the built output: the
+  web bundle contains the stub and none of the pipeline, the APK ships
+  `libmlkitcommonpipeline.so` for all three ABIs.
+- **Dependency gotcha, read `../summary.md` §7 before touching `pubspec.yaml`:**
+  the module plan's pinned versions don't build (plugins on `compileSdk 33` are a
+  hard error under AGP 9.1.0), but neither does simply taking latest —
+  `permission_handler` 13.x wants SDK 37, which AGP 9.1.0 can't resolve. It is
+  pinned at ^11.3.1 deliberately, with the reason written next to the pin.
+- **Now verified on an Android emulator** (API 37, Play image) with the host
+  webcam wired in as the back camera (`hw.camera.back=webcam0` — the default
+  `virtualscene` only offers fixed furniture at a fixed distance, which can't
+  exercise direction or proximity). Confirmed end to end: camera opens, ML Kit
+  loads and detects, direction and urgency track what's actually in frame, and
+  STOP releases the sensor (`CameraService: disconnect` in logcat).
+- **Still NOT verified:** nothing has run on a real phone, and iOS is entirely
+  unbuilt. A webcam held still is not a runner in motion — the escalation
+  timings and the haptic pattern remain untested under real movement.
+- **Tuning constants are no longer guesses, but are not measured either.** They
+  were re-derived for running pace from `d ~= H / (1.155 * ratio)` and now put
+  DANGER near 4m (~1.5s at 3 m/s) instead of ~2.3m (~0.8s). See `../summary.md`
+  §11 for the derivation and its two caveats. Plan §13 step 10 still stands.
+
+**Post-merge with `main` (checkpoints 4-6 + GPS groundwork):** `LiveRunScreen`
+now exists and is exactly the consumer `LivePerceptionService` was written for —
+it subscribes to `PerceptionService.alertStream()` and calls `startSimulation()`.
+Two things to settle before `useMock` is flipped to `false`:
+- `LiveRunScreen` and `ObstacleDetectionScreen` each construct their own
+  `ObstacleDetectionController`, so each owns a `CameraService`. Opening both
+  means two `CameraController`s on one device — the second throws. The
+  `LivePerceptionService.controller` getter exists so the screen can share the
+  one instance; wire that up rather than letting both create one.
+- `Provider<PerceptionService>` in `main.dart` has no `dispose:` callback, so
+  `LivePerceptionService.dispose()` never runs and the camera/detector leak on
+  teardown.
+
+Also fixed post-review in this branch: ML Kit bounding boxes are measured in the
+rotated (upright) frame, so `InputImageConverter` now returns that size
+(`ConvertedFrame`) and the proximity/direction ratios use it — previously they
+divided by the raw frame dimensions, which on a portrait phone inflated every
+obstacle to DANGER and skewed direction left. `stop()` now releases the camera
+instead of only stopping the stream. `TtsService` no longer latches
+`isSpeaking` forever if a completion callback is dropped (that would have
+silenced every later alert), and `FeedbackService.dispose()` no longer stops the
+app-wide TTS engine.
 ## User asked to test on a real emulator, not Chrome
 Checked feasibility before doing anything: `flutter doctor -v` shows neither the Android SDK nor Visual Studio (needed even for a Windows desktop build) are installed on this machine — Chrome/web is genuinely the only target that works right now, matching the checkpoint-1 note from the very start of this project. Setting up an Android emulator means a multi-GB SDK + system-image download and creating an AVD, with a real chance it's unusably slow or won't boot at all if this machine can't do hardware-accelerated virtualization (can't know that until actually trying) — flagged this to the user rather than silently starting a long, possibly-futile install. Awaiting their choice (emulator vs. physical phone vs. stay on Chrome for now) before touching anything here.
 

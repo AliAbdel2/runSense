@@ -4,4 +4,7 @@
          to allow setting breakpoints, to provide hot reload, etc.
     -->
     <uses-permission android:name="android.permission.INTERNET"/>
+    <!-- Local FastAPI runs over HTTP at the emulator host alias. Release
+         builds should use an HTTPS RUNSENSE_API_BASE_URL instead. -->
+    <application android:usesCleartextTraffic="true" />
 </manifest>

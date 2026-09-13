@@ -10,6 +10,7 @@ class PlannedSession {
   final String spokenSummary; // <25 words, TTS-ready
   final GuideStatus guideStatus;
   final String venue;
+  final int? targetPaceSecPerKm;
 
   const PlannedSession({
     required this.id,
@@ -19,7 +20,23 @@ class PlannedSession {
     required this.spokenSummary,
     required this.guideStatus,
     required this.venue,
+    this.targetPaceSecPerKm,
   });
+
+  /// Fallback pace target when the session doesn't set one explicitly.
+  int? get effectiveTargetPaceSecPerKm {
+    if (targetPaceSecPerKm != null) return targetPaceSecPerKm;
+    switch (type) {
+      case SessionType.hard:
+        return 300;
+      case SessionType.easy:
+        return 390;
+      case SessionType.longRun:
+        return 420;
+      case SessionType.rest:
+        return null;
+    }
+  }
 }
 
 class CompletedSession {

@@ -16,26 +16,42 @@ void main() {
       .setMockMethodCallHandler(ttsChannel, (call) async => null);
 
   testWidgets('Home screen shows RunSense title', (WidgetTester tester) async {
-    await tester.pumpWidget(const RunSenseApp());
+    await tester.pumpWidget(const RunSenseApp(forceMocks: true));
     await tester.pump(const Duration(milliseconds: 350)); // mocked getWeekPlan() delay
 
     expect(find.text('RunSense'), findsOneWidget);
   });
 
   testWidgets(
-      'Start Session -> scripted alerts -> End Session shows the real alert '
-      'count on the summary screen', (WidgetTester tester) async {
+      'Start Session -> coach briefing -> Start Run -> scripted alerts -> '
+      'End Session shows the real alert count on the summary screen',
+      (WidgetTester tester) async {
     // bySemanticsLabel needs a live semantics tree. Disposed explicitly at
     // the end of this test body, not via addTearDown: flutter_test's
     // end-of-test SemanticsHandle check runs before package:test's own
     // tearDown queue, so an addTearDown-scheduled dispose is too late.
     final semanticsHandle = tester.ensureSemantics();
 
-    await tester.pumpWidget(const RunSenseApp());
+    // forceMocks: true is required here — RunSenseApp otherwise wires the
+    // real camera-backed PerceptionService (useLiveCamera in app_config.dart),
+    // which would try to open an actual camera under test.
+    await tester.pumpWidget(const RunSenseApp(forceMocks: true));
     await tester.pump(const Duration(milliseconds: 350)); // getWeekPlan() delay
 
     await tester.tap(find.text('START SESSION'));
+    await tester.pump(); // rebuild into CoachBriefingScreen
+    await tester.pump(const Duration(milliseconds: 450)); // mocked coach reply delay
+
+    expect(find.text('Coach Briefing'), findsOneWidget);
+
+    await tester.tap(find.text('START RUN'));
     await tester.pump(); // rebuild after tap
+    // Camera permission and Wakelock both have no platform channel under
+    // test, so each waits out its own 5s timeout before proceeding as if
+    // denied/unavailable — see coach_briefing_screen.dart's _startRun and
+    // live_run_screen.dart's _start.
+    await tester.pump(const Duration(seconds: 5)); // camera permission timeout
+    await tester.pump(const Duration(seconds: 5)); // wakelock enable timeout
     await tester.pump(const Duration(milliseconds: 350)); // startSession() delay
 
     expect(find.text('Live Run'), findsOneWidget);
@@ -52,6 +68,9 @@ void main() {
 
     await tester.tap(find.text('END SESSION'));
     await tester.pump(); // rebuild into the _ending state
+    // Wakelock disable also has no platform channel under test, so it waits
+    // out its own 5s timeout — see _endSession in live_run_screen.dart.
+    await tester.pump(const Duration(seconds: 5)); // wakelock disable timeout
     // Not pumpAndSettle for this step: it stops as soon as one 100ms step
     // produces no new frame, which can happen well before the mocked 500ms
     // endSession() delay's Future actually fires — it isn't guaranteed to

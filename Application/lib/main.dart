@@ -2,10 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import 'app_config.dart';
+import 'features/obstacle_detection/obstacle_detection_entry.dart';
 import 'screens/home_screen.dart';
 import 'services/agent_chat_service.dart';
 import 'services/live/live_agent_chat_service.dart';
+import 'services/live/live_location_service.dart';
 import 'services/live/live_plan_service.dart';
+import 'services/live/live_session_service.dart';
 import 'services/location_service.dart';
 import 'services/mock/mock_agent_chat_service.dart';
 import 'services/mock/mock_location_service.dart';
@@ -23,37 +26,55 @@ void main() {
 }
 
 class RunSenseApp extends StatelessWidget {
-  const RunSenseApp({super.key});
+  const RunSenseApp({super.key, this.forceMocks = false});
+
+  /// Test seam: forces every service (including perception) to its mock,
+  /// so widget tests never try to open a real camera. See app_config.dart.
+  final bool forceMocks;
 
   @override
   Widget build(BuildContext context) {
     return MultiProvider(
       providers: [
+        // TtsService is first because PerceptionService reads it during
+        // creation — MultiProvider nests in list order, so a provider can only
+        // read the ones declared above it.
+        Provider<TtsService>(create: (_) => TtsService()),
         Provider<PlanService>(
-          create: (_) => useMockPlan ? MockPlanService() : LivePlanService(),
+          create: (_) => (forceMocks || useMockPlan)
+              ? MockPlanService()
+              : LivePlanService(),
         ),
         Provider<SessionService>(
-          create: (_) => useMockSession
+          create: (_) => (forceMocks || useMockSession)
               ? MockSessionService()
-              : throw UnimplementedError('LiveSessionService not wired yet'),
+              : LiveSessionService(),
+          dispose: (_, service) {
+            if (service is LiveSessionService) service.dispose();
+          },
         ),
         Provider<PerceptionService>(
-          create: (_) => useMockPerception
-              ? MockPerceptionService()
-              : throw UnimplementedError('LivePerceptionService not wired yet'),
+          create: (ctx) => (!forceMocks &&
+                  !useMockPerception &&
+                  obstacleDetectionSupported)
+              ? createLivePerceptionService(ctx.read<TtsService>())
+              : MockPerceptionService(),
+          dispose: (_, service) => service.dispose(),
         ),
         Provider<AgentChatService>(
-          create: (_) => useMockAgentChat ? MockAgentChatService() : LiveAgentChatService(),
+          create: (_) => (forceMocks || useMockAgentChat)
+              ? MockAgentChatService()
+              : LiveAgentChatService(),
         ),
-        // Not yet consumed by any screen — added ahead of the real GPS work
-        // (see obstacle_detection_module_plan.md for the camera side) so the
-        // eventual LiveLocationService is a one-file swap.
         Provider<LocationService>(
-          create: (_) => useMockLocation
+          create: (_) => (forceMocks || useMockLocation)
               ? MockLocationService()
-              : throw UnimplementedError('LiveLocationService not wired yet'),
+              : LiveLocationService(),
+          dispose: (_, service) {
+            if (service is MockLocationService) service.dispose();
+            if (service is LiveLocationService) service.dispose();
+          },
         ),
-        Provider<TtsService>(create: (_) => TtsService()),
       ],
       child: MaterialApp(
         title: 'RunSense',

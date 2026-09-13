@@ -30,7 +30,7 @@ class LivePlanService implements PlanService {
   Future<List<PlannedSession>> _createPlan(String scenario) async {
     final response = await http.post(
       Uri.parse('$apiBaseUrl/api/plan'),
-      headers: {'Content-Type': 'application/json'},
+      headers: apiJsonHeaders(),
       body: jsonEncode({'scenario': scenario}),
     );
     if (response.statusCode != 200) {

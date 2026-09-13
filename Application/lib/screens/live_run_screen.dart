@@ -2,15 +2,18 @@ import 'dart:async';
 import 'dart:math';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
 
+import '../features/obstacle_detection/obstacle_detection_entry.dart';
 import '../models/alert.dart';
 import '../models/location_fix.dart';
 import '../models/session.dart';
 import '../services/location_service.dart';
 import '../services/mock/mock_session_service.dart';
+import '../services/pace_coach.dart';
 import '../services/perception_service.dart';
+import '../services/run_narrator.dart';
 import '../services/session_service.dart';
 import '../services/tts_service.dart';
 import '../theme/app_colors.dart';
@@ -20,29 +23,42 @@ import '../widgets/big_action_button.dart';
 import 'session_summary_screen.dart';
 
 /// Live Run screen (plan section 6.2): subscribes to
-/// PerceptionService.alertStream(), speaks each alert, interrupts + haptics
-/// on DANGER, and keeps an in-memory alert count for the end-of-session
-/// summary (read by whoever builds that summary UI later).
+/// PerceptionService.alertStream(), narrates each alert/pace cue through
+/// [RunNarrator], and keeps an in-memory alert count for the end-of-session
+/// summary.
 class LiveRunScreen extends StatefulWidget {
   final String plannedSessionId;
 
-  const LiveRunScreen({super.key, required this.plannedSessionId});
+  /// From the briefed session's pace target — enables PaceCoach's off-pace
+  /// nudge. Null (e.g. no target set) leaves periodic pace callouts only.
+  final int? targetPaceSecPerKm;
+
+  const LiveRunScreen({
+    super.key,
+    required this.plannedSessionId,
+    this.targetPaceSecPerKm,
+  });
 
   @override
   State<LiveRunScreen> createState() => _LiveRunScreenState();
 }
 
-class _LiveRunScreenState extends State<LiveRunScreen> {
+class _LiveRunScreenState extends State<LiveRunScreen>
+    with WidgetsBindingObserver {
   StreamSubscription<ObstacleAlert>? _sub;
   StreamSubscription<LocationFix>? _locSub;
   String? _sessionId;
   ObstacleAlert? _lastAlert;
   int _alertCount = 0;
   bool _ending = false;
+  bool _obstacleDetectionPaused = false;
 
   LocationFix? _lastFix;
   double _distanceMeters = 0;
   DateTime? _startTime;
+
+  late final PaceCoach _paceCoach =
+      PaceCoach(targetPaceSecPerKm: widget.targetPaceSecPerKm);
 
   // Cached at start rather than looked up again in dispose()/_endSession():
   // context.read() does an ancestor lookup, and calling it inside dispose()
@@ -51,10 +67,13 @@ class _LiveRunScreenState extends State<LiveRunScreen> {
   // "Looking up a deactivated widget's ancestor is unsafe."
   PerceptionService? _perception;
   LocationService? _location;
+  SessionService? _sessionService;
+  RunNarrator? _narrator;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _start();
   }
 
@@ -64,14 +83,48 @@ class _LiveRunScreenState extends State<LiveRunScreen> {
     final location = context.read<LocationService>();
     _perception = perception;
     _location = location;
+    _sessionService = sessionService;
+    _narrator = RunNarrator(context.read<TtsService>());
+    try {
+      await WakelockPlus.enable().timeout(const Duration(seconds: 5));
+    } catch (_) {
+      // No platform channel (e.g. a test harness) or a plugin hang — the run
+      // still works, it just won't keep the screen awake.
+    }
     final completed = await sessionService.startSession(widget.plannedSessionId);
     if (!mounted) return;
     _sessionId = completed.sessionId;
     _sub = perception.alertStream().listen(_onAlert);
     perception.startSimulation();
     _startTime = DateTime.now();
-    _locSub = location.positionStream().listen(_onFix);
-    location.startTracking();
+    var locationGranted = false;
+    try {
+      locationGranted = await location
+          .requestPermission()
+          .timeout(const Duration(seconds: 10));
+    } catch (_) {}
+    if (locationGranted) {
+      _locSub = location.positionStream().listen(_onFix);
+      location.startTracking();
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    final perception = _perception;
+    final narrator = _narrator;
+    if (perception == null || _ending) return;
+    if (state != AppLifecycleState.resumed) {
+      if (!_obstacleDetectionPaused) {
+        _obstacleDetectionPaused = true;
+        perception.stopSimulation();
+        narrator?.announceSystem('Obstacle detection paused');
+      }
+    } else if (_obstacleDetectionPaused) {
+      _obstacleDetectionPaused = false;
+      perception.startSimulation();
+      narrator?.announceSystem('Obstacle detection resumed');
+    }
   }
 
   void _onAlert(ObstacleAlert alert) {
@@ -80,13 +133,7 @@ class _LiveRunScreenState extends State<LiveRunScreen> {
       _lastAlert = alert;
       _alertCount++;
     });
-    final tts = context.read<TtsService>();
-    if (alert.tier == AlertTier.danger) {
-      HapticFeedback.heavyImpact();
-      tts.interruptAndSpeak(alert.utterance);
-    } else {
-      tts.speak(alert.utterance);
-    }
+    _narrator?.announceObstacle(alert);
   }
 
   void _onFix(LocationFix fix) {
@@ -98,6 +145,19 @@ class _LiveRunScreenState extends State<LiveRunScreen> {
       }
       _lastFix = fix;
     });
+    final sessionId = _sessionId;
+    final sessionService = _sessionService;
+    if (sessionId != null && sessionService != null) {
+      unawaited(
+        sessionService
+            .addLocationSample(sessionId, fix)
+            .catchError((_) {}),
+      );
+    }
+    final paceUtterance = _paceCoach.onFix(fix);
+    if (paceUtterance != null) {
+      _narrator?.announcePace(paceUtterance);
+    }
   }
 
   /// Great-circle distance between two fixes, in meters. Standard haversine
@@ -130,26 +190,31 @@ class _LiveRunScreenState extends State<LiveRunScreen> {
     _perception?.stopSimulation();
     _location?.stopTracking();
     await tts.stop();
+    try {
+      await WakelockPlus.disable().timeout(const Duration(seconds: 5));
+    } catch (_) {}
     final sessionId = _sessionId;
-    if (sessionId != null) {
-      await sessionService.endSession(sessionId);
-    }
+    final backendCompleted = sessionId == null
+        ? null
+        : await sessionService.endSession(sessionId);
     if (!mounted) return;
 
-    // MockSessionService.endSession() can't return the CompletedSession
-    // directly (the SessionService interface locks it to Future<void> — see
-    // the checkpoint-2 deviation note in PROGRESS.md), so this cast is the
-    // documented way to read its adaptationNote. alertCount, actualKm and
-    // duration are all this screen's own live-observed numbers now (from the
-    // alert stream and LocationService), not the mock's hardcoded stand-ins.
+    // Mock sessions keep the canned adaptation note, while a live session uses
+    // the backend's accepted GPS distance and active elapsed time. Alert count
+    // remains local because obstacle inference intentionally stays on-device.
     final mockCompleted =
         sessionService is MockSessionService ? sessionService.lastCompleted : null;
     final elapsed =
         _startTime == null ? Duration.zero : DateTime.now().difference(_startTime!);
+    final useBackendSummary = sessionService is! MockSessionService;
     final summary = CompletedSession(
       sessionId: mockCompleted?.sessionId ?? sessionId ?? widget.plannedSessionId,
-      actualKm: _distanceMeters / 1000,
-      duration: elapsed,
+      actualKm: useBackendSummary
+          ? backendCompleted?.actualKm ?? _distanceMeters / 1000
+          : _distanceMeters / 1000,
+      duration: useBackendSummary
+          ? backendCompleted?.duration ?? elapsed
+          : elapsed,
       alertCount: _alertCount,
       adaptationNote: mockCompleted?.adaptationNote,
     );
@@ -160,10 +225,12 @@ class _LiveRunScreenState extends State<LiveRunScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _sub?.cancel();
     _locSub?.cancel();
     _perception?.stopSimulation();
     _location?.stopTracking();
+    WakelockPlus.disable().catchError((_) {});
     super.dispose();
   }
 
@@ -259,6 +326,21 @@ class _LiveRunScreenState extends State<LiveRunScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
+              Builder(builder: (context) {
+                final perception = _perception;
+                final preview =
+                    perception == null ? null : buildRunCameraPreview(perception);
+                // Degrades cleanly to nothing when there's no live camera
+                // (mock service, or not yet initialized).
+                if (preview == null) return const SizedBox.shrink();
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: AppSpacing.md),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(14),
+                    child: AspectRatio(aspectRatio: 3 / 4, child: preview),
+                  ),
+                );
+              }),
               Expanded(
                 child: Semantics(
                   liveRegion: true,
