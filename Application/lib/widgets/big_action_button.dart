@@ -20,8 +20,9 @@ class BigActionButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final textStyle = TextStyle(
-      fontSize: primary ? 22 : 18,
-      fontWeight: primary ? FontWeight.bold : FontWeight.w600,
+      fontSize: primary ? 20 : 17,
+      fontWeight: primary ? FontWeight.w700 : FontWeight.w600,
+      letterSpacing: 0.2,
     );
 
     final button = primary

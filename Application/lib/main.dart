@@ -16,6 +16,7 @@ import 'services/perception_service.dart';
 import 'services/plan_service.dart';
 import 'services/session_service.dart';
 import 'services/tts_service.dart';
+import 'theme/app_theme.dart';
 
 void main() {
   runApp(const RunSenseApp());
@@ -56,10 +57,9 @@ class RunSenseApp extends StatelessWidget {
       ],
       child: MaterialApp(
         title: 'RunSense',
-        theme: ThemeData(
-          colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
-          useMaterial3: true,
-        ),
+        theme: AppTheme.light,
+        darkTheme: AppTheme.dark,
+        themeMode: ThemeMode.system,
         home: const HomeScreen(),
       ),
     );
