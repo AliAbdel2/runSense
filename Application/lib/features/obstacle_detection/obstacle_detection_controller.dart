@@ -45,6 +45,7 @@ class ObstacleDetectionController extends ChangeNotifier {
 
   DateTime _lastProcessed = DateTime.fromMillisecondsSinceEpoch(0);
   DateTime _lastHighAlert = DateTime.fromMillisecondsSinceEpoch(0);
+  DateTime _lastAlertShownAt = DateTime.fromMillisecondsSinceEpoch(0);
   final Map<int, DateTime> _lastAlertPerObject = {}; // trackingId -> time
 
   // Tuning knobs — adjust during field testing (module plan §10, §13 step 10).
@@ -54,6 +55,16 @@ class ObstacleDetectionController extends ChangeNotifier {
   static const _minHeightRatio = 0.20; // ignore tiny/far specks
   static const _proximityMedium = 0.45; // box-height ratio thresholds
   static const _proximityHigh = 0.65;
+
+  /// How long [lastAlert] holds the on-screen readout before a clear frame or a
+  /// same/lower-urgency alert may replace it.
+  ///
+  /// DISPLAY ONLY — frames are still analysed at [_minFrameGap], and speech and
+  /// haptics keep their own cadence ([_reAlertGap], [_highRepeatGap]). Without
+  /// this the text flips between "left" and "right" several times a second,
+  /// which is fine for the ears but unreadable for anyone watching the screen.
+  /// Escalation is exempt: a more urgent alert always takes the readout at once.
+  static const _alertHoldTime = Duration(seconds: 2);
 
   bool get isRunning => _running;
   bool get isStarting => _starting;
@@ -84,10 +95,14 @@ class ObstacleDetectionController extends ChangeNotifier {
   Future<void> stop() async {
     if (!_running) return;
     _running = false;
-    await camera.stopStream();
+    // Release the camera, don't just stop the stream: a still-initialised
+    // controller keeps the sensor powered and the preview live, and the plugin
+    // crashes if the app is backgrounded while holding one.
+    await camera.dispose();
     await feedback.announce('Obstacle detection off');
     _lastAlertPerObject.clear();
     _lastAlert = null;
+    _lastAlertShownAt = DateTime.fromMillisecondsSinceEpoch(0);
     notifyListeners();
   }
 
@@ -105,20 +120,24 @@ class ObstacleDetectionController extends ChangeNotifier {
       final description = camera.description;
       if (description == null) return;
 
-      final inputImage = InputImageConverter.fromCameraImage(
+      final frame = InputImageConverter.fromCameraImage(
         image,
         description,
         DeviceOrientation.portraitUp, // MVP assumes the phone is held portrait
       );
-      if (inputImage == null) return;
+      if (frame == null) return;
 
-      final objects = await detector.detect(inputImage);
+      final objects = await detector.detect(frame.image);
+      // frame.width/height, not image.width/height: ML Kit measures boxes in
+      // the rotated (upright) frame, so on a portrait phone the two are swapped.
       final obstacle =
-          _pickMostThreatening(objects, image.width, image.height);
+          _pickMostThreatening(objects, frame.width, frame.height);
       if (obstacle == null) {
         // Path is clear again — drop the stale alert so the on-screen readout
-        // stops claiming there's still something there.
-        if (_lastAlert != null) {
+        // stops claiming there's still something there, but not before it has
+        // been on screen long enough to read.
+        if (_lastAlert != null &&
+            now.difference(_lastAlertShownAt) >= _alertHoldTime) {
           _lastAlert = null;
           if (!_disposed) notifyListeners();
         }
@@ -132,7 +151,10 @@ class ObstacleDetectionController extends ChangeNotifier {
       _pruneAlertHistory(now);
       if (!_shouldFire(alert, now)) return;
 
-      _lastAlert = alert;
+      if (_shouldReplaceReadout(alert, now)) {
+        _lastAlert = alert;
+        _lastAlertShownAt = now;
+      }
       if (!_alerts.isClosed) _alerts.add(alert);
       if (speakAlerts) await feedback.deliver(alert);
       if (!_disposed) notifyListeners();
@@ -222,6 +244,16 @@ class ObstacleDetectionController extends ChangeNotifier {
     if (last != null && now.difference(last) < _reAlertGap) return false;
     _lastAlertPerObject[id] = now;
     return true;
+  }
+
+  /// Display policy for [lastAlert] — see [_alertHoldTime]. A more urgent alert
+  /// preempts immediately so an escalation to DANGER is never made to wait
+  /// behind a notice; anything else waits out the hold.
+  bool _shouldReplaceReadout(ObstacleAlert alert, DateTime now) {
+    final current = _lastAlert;
+    if (current == null) return true;
+    if (alert.urgency.index > current.urgency.index) return true;
+    return now.difference(_lastAlertShownAt) >= _alertHoldTime;
   }
 
   /// Tracking ids are never reused but do keep climbing over a long run, so

@@ -5,9 +5,10 @@ import '../features/obstacle_detection/obstacle_detection_entry.dart';
 import '../models/session.dart';
 import '../services/agent_chat_service.dart';
 import '../services/plan_service.dart';
-import '../services/session_service.dart';
 import '../services/tts_service.dart';
 import '../widgets/big_action_button.dart';
+import 'live_run_screen.dart';
+import 'week_plan_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -55,11 +56,18 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _startSession() async {
     final today = _today;
     if (today == null) return;
-    final sessionService = context.read<SessionService>();
     final tts = context.read<TtsService>();
-    await sessionService.startSession(today.id);
     await tts.speak('Starting session: ${today.description}');
-    // TODO(checkpoint 6): navigate to the Live Run screen once it exists.
+    if (!mounted) return;
+    // LiveRunScreen calls SessionService.startSession() itself once pushed.
+    await Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => LiveRunScreen(plannedSessionId: today.id)),
+    );
+    // Ending the run can leave the plan in a different state (e.g. a replan
+    // happened, or a future checkpoint has endSession() adapt tomorrow's
+    // session) — reload so Home always shows the current plan on return.
+    if (!mounted) return;
+    await _loadAndAnnounce();
   }
 
   Future<void> _askCoach() async {
@@ -78,11 +86,35 @@ class _HomeScreenState extends State<HomeScreen> {
     await tts.speak(reply);
   }
 
+  Future<void> _openWeekPlan() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const WeekPlanScreen()),
+    );
+    // A long-press replan on the Week Plan screen may have changed today's
+    // entry (e.g. Tue's guide got cancelled) — reload so Home reflects it.
+    if (!mounted) return;
+    await _loadAndAnnounce();
+  }
+
   @override
   Widget build(BuildContext context) {
     final today = _today;
     return Scaffold(
-      appBar: AppBar(title: const Text('RunSense')),
+      appBar: AppBar(
+        title: const Text('RunSense'),
+        actions: [
+          Semantics(
+            button: true,
+            label: 'Week plan',
+            child: IconButton(
+              icon: const Icon(Icons.calendar_view_week),
+              tooltip: 'Week plan',
+              constraints: const BoxConstraints(minWidth: 64, minHeight: 64),
+              onPressed: _openWeekPlan,
+            ),
+          ),
+        ],
+      ),
       body: SafeArea(
         child: Padding(
           padding: const EdgeInsets.all(24),
@@ -106,8 +138,11 @@ class _HomeScreenState extends State<HomeScreen> {
                       ),
                     const Spacer(),
                     if (_coachReply != null) ...[
-                      Text(_coachReply!,
-                          style: Theme.of(context).textTheme.bodyLarge),
+                      Semantics(
+                        liveRegion: true,
+                        child: Text(_coachReply!,
+                            style: Theme.of(context).textTheme.bodyLarge),
+                      ),
                       const SizedBox(height: 16),
                     ],
                     BigActionButton(

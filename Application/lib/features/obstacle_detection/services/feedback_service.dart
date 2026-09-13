@@ -75,5 +75,8 @@ class FeedbackService {
     }
   }
 
-  Future<void> dispose() => _tts.stop();
+  /// Deliberately does NOT stop the TTS engine: [_tts] is the app-wide
+  /// singleton from the Provider tree, so stopping it here would cut off
+  /// speech belonging to whatever screen comes next.
+  Future<void> dispose() async {}
 }

@@ -273,3 +273,109 @@ toolchain.
    `useMock` to exercise `LivePerceptionService` end to end.
 5. Phase 2 (plan §11): swap the box-height heuristic for real depth. Only
    `_pickMostThreatening` changes — that isolation is the point of the design.
+
+---
+
+## 9. Post-review fixes (applied after the Phase 1 write-up above)
+
+A review of this branch against `main` found four runtime defects. All four are
+fixed; `flutter analyze` and `flutter test` pass after each.
+
+### 9.1 Bounding boxes were scaled against the wrong coordinate space
+
+**The bug.** ML Kit reports bounding boxes in the *upright* image — the frame
+after `InputImageMetadata.rotation` is applied. `_onFrame` was dividing those
+boxes by the *raw* camera dimensions (`image.width`/`image.height`). On a
+portrait Android phone the sensor orientation is 90°, so the two spaces have
+width and height swapped. For a 640×480 stream:
+
+- `heightRatio = box.height / 480` where `box.height` ranges up to 640 →
+  inflated past 1.0 and clamped, so nearly every detection crossed
+  `_proximityHigh` (0.65) → permanent `AlertUrgency.high`: "DANGER", a 400 ms
+  full-amplitude buzz, and the 700 ms repeat cadence, for everything in frame.
+- `centerX = ... / 640` where the value ranges up to 480 → maximum 0.75, so the
+  `> 0.66` "right" branch was almost unreachable and direction skewed left.
+
+Neither symptom would look like a crash — the pipeline would appear to work and
+simply be wrong, which is why it survived to review.
+
+**The fix.** `InputImageConverter.fromCameraImage` now returns a
+`ConvertedFrame` (`services/input_image_converter.dart`) carrying the
+`InputImage` *and* the upright dimensions — the raw dimensions swapped when the
+rotation is 90° or 270°. `_onFrame` passes `frame.width`/`frame.height` into
+`_pickMostThreatening`. The heuristic itself is unchanged.
+
+**Still needs a device.** The swap direction is correct per ML Kit's documented
+behaviour and the official Flutter example's `coordinates_translator.dart`, but
+it has not been observed on hardware. Confirm on the phone that an obstacle on
+the runner's right is announced as "right".
+
+### 9.2 STOP left the camera powered
+
+`stop()` called `camera.stopStream()` only. The `CameraController` stayed
+initialised, so `isInitialized` stayed true, `ObstacleDetectionScreen` kept
+rendering a live `CameraPreview` under a status line reading "Detection
+stopped.", and the sensor stayed on. Worse, `didChangeAppLifecycleState` routes
+backgrounding through `stop()` — the exact situation the code's own comment says
+crashes the plugin. `stop()` now calls `camera.dispose()`. `start()` re-creates
+the controller, so the START/STOP cycle is unaffected.
+
+### 9.3 A dropped TTS callback silenced the app permanently
+
+`FeedbackService._speak` skips speech while `TtsService.isSpeaking`. That flag
+was set on every `speak()` and cleared *only* by `setCompletionHandler`, which
+flutter_tts does not fire reliably on every platform/engine (and `speak()` never
+set `awaitSpeakCompletion(true)`). One missed callback would latch the flag true
+and drop every subsequent alert for the rest of the run — silent failure, in the
+one part of the app a blind runner depends on.
+
+`TtsService` (`lib/services/tts_service.dart`) now tracks a `_speakingUntil`
+deadline instead of a bare bool: `isSpeaking` self-clears after `_maxUtterance`
+(5 s), and `setCancelHandler` / `setErrorHandler` clear it too. Worst case is
+now one overlapping utterance, not permanent silence.
+
+### 9.4 Leaving the module screen stopped app-wide speech
+
+`FeedbackService.dispose()` called `_tts.stop()` on the shared, Provider-owned
+`TtsService` — so popping the obstacle-detection screen cut off speech belonging
+to whatever screen came next. The module borrows that service, it doesn't own
+it; `dispose()` is now a documented no-op.
+
+---
+
+## 10. Merge with `main` (checkpoints 4–6 + GPS groundwork)
+
+`origin/main` advanced by five commits (Live Run screen, Week Plan screen,
+accessibility/nav pass, GPS + permission groundwork). Merged into this branch;
+five files conflicted:
+
+| File | Resolution |
+| --- | --- |
+| `lib/main.dart` | Kept `main`'s `Provider<LocationService>`; dropped its second `Provider<TtsService>` — this branch deliberately moved `TtsService` to the **top** of the provider list because `PerceptionService` reads it during creation and `MultiProvider` nests in list order. |
+| `android/.../AndroidManifest.xml` | Union of both permission sets: CAMERA + VIBRATE + camera `uses-feature` (this branch) and ACCESS_FINE/COARSE_LOCATION (`main`). |
+| `pubspec.yaml` | Both dependency blocks kept. `permission_handler ^11.3.1` appeared on both sides — now declared once, with the AGP 9.1.0 pinning rationale preserved. `main`'s comment saying camera/ML Kit were deliberately left out is gone; it described the pre-merge state. |
+| `pubspec.lock` | Regenerated with `flutter pub get` from the merged manifest. |
+| `PROGRESS.md` | `main`'s checkpoint 4/5/6 + GPS sections kept in order, Phase 2 section appended after them. This branch's stale "next up: build the Live Run screen" notes removed — `main` built it. |
+
+`home_screen.dart` auto-merged cleanly: `main`'s Live Run / Week Plan navigation
+and this branch's OBSTACLE DETECTION button coexist.
+
+### 10.1 What the merge makes urgent
+
+`LiveRunScreen` now exists, and it is exactly the consumer `LivePerceptionService`
+(§5) was written for — it subscribes to `alertStream()` and calls
+`startSimulation()`. Two problems that were latent before the merge are now on
+the critical path to flipping `useMock` to `false`:
+
+1. **Two camera owners.** `LiveRunScreen` (via `LivePerceptionService`) and
+   `ObstacleDetectionScreen` each construct their own
+   `ObstacleDetectionController`, and each controller owns a `CameraService`.
+   Two `CameraController`s on one device means the second one throws. The
+   `LivePerceptionService.controller` getter exists precisely so a host screen
+   can share the single instance — the screen needs to use it.
+2. **`LivePerceptionService` is never disposed.** `Provider<PerceptionService>`
+   in `main.dart` has no `dispose:` callback, so the camera, the ML Kit detector
+   and the alert subscription leak on teardown.
+
+Neither is fixed here — both are integration decisions that belong with whoever
+wires Live Run to the live pipeline.

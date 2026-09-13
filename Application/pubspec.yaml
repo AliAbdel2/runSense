@@ -50,12 +50,19 @@ dependencies:
   google_mlkit_object_detection: ^0.17.1 # on-device detection + tracking
   google_mlkit_commons: ^0.13.0          # InputImage types
   vibration: ^3.2.1                      # haptics with amplitude control
-  # Pinned BELOW latest on purpose: permission_handler 13.x pulls
-  # permission_handler_android 14.x, which compiles against SDK 37 — a version
-  # AGP 9.1.0 (pinned in android/settings.gradle.kts) cannot resolve. 11.x gives
+
+  # GPS groundwork for pace/distance tracking. useMock stays true;
+  # MockLocationService is what's wired up in main.dart for now.
+  geolocator: ^13.0.2
+
+  # Shared by both of the above (camera permission on the obstacle-detection
+  # screen, location permission for GPS). Pinned BELOW latest on purpose:
+  # permission_handler 13.x pulls permission_handler_android 14.x, which
+  # compiles against SDK 37 — a version AGP 9.1.0 (pinned in
+  # android/settings.gradle.kts) cannot resolve. 11.x gives
   # permission_handler_android 12.1.0 at compileSdk 34, which builds. Revisit
   # when the project moves off AGP 9.1.0.
-  permission_handler: ^11.3.1            # runtime camera permission
+  permission_handler: ^11.3.1
 
 dev_dependencies:
   flutter_test:
