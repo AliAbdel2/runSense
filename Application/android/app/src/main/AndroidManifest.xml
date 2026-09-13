@@ -8,7 +8,10 @@
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <!-- Voice "start" command on the coach briefing screen (VoiceCommandService) -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
-
+    <!-- Talking to the FastAPI backend (Plan, Agent chat, eventually Strava
+         sync/Calendar) — debug/profile builds already get this from their
+         own manifests, but a release build needs it declared here too. -->
+    <uses-permission android:name="android.permission.INTERNET" />
     <application
         android:label="runsense"
         android:name="${applicationName}"

@@ -6,12 +6,16 @@ class LocationFix {
   final double latitude;
   final double longitude;
   final double? speedMetersPerSecond;
+  final double? accuracyMeters;
+  final double? altitudeMeters;
   final DateTime ts;
 
   const LocationFix({
     required this.latitude,
     required this.longitude,
     this.speedMetersPerSecond,
+    this.accuracyMeters,
+    this.altitudeMeters,
     required this.ts,
   });
 }

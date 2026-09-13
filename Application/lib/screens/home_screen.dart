@@ -56,8 +56,12 @@ class _HomeScreenState extends State<HomeScreen> {
   // what day it actually is. Week Plan still shows the true 7-day week.
   PlannedSession? _pickToday(List<PlannedSession> week) {
     if (week.isEmpty) return null;
+    // Matched by type, not id: MockData's baseWeek() always puts the hard
+    // session at id 'tue-hard', but LivePlanService's ids are real backend
+    // session ids (random hashes), so matching the literal mock id would
+    // silently fall through to week.first (a rest day) for every live plan.
     for (final s in week) {
-      if (s.id == 'tue-hard') return s;
+      if (s.type == SessionType.hard) return s;
     }
     return week.first;
   }

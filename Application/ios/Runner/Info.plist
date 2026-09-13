@@ -10,6 +10,8 @@
 	<string>Your microphone lets you start your run by voice instead of tapping the screen.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>Speech recognition is used to hear you say "start" so you can begin your run hands-free.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Your location is used to measure distance and pace during a run.</string>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
 	<key>CFBundleDevelopmentRegion</key>

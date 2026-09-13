@@ -1,3 +1,4 @@
+import '../../models/location_fix.dart';
 import '../../models/session.dart';
 import '../session_service.dart';
 
@@ -19,7 +20,10 @@ class MockSessionService implements SessionService {
   }
 
   @override
-  Future<void> endSession(String sessionId) async {
+  Future<void> addLocationSample(String sessionId, LocationFix fix) async {}
+
+  @override
+  Future<CompletedSession> endSession(String sessionId) async {
     await Future.delayed(const Duration(milliseconds: 500));
     lastCompleted = CompletedSession(
       sessionId: sessionId,
@@ -28,5 +32,6 @@ class MockSessionService implements SessionService {
       alertCount: 3,
       adaptationNote: 'Thu reduced because Tue was cut short',
     );
+    return lastCompleted!;
   }
 }

@@ -46,3 +46,7 @@ app.*.map.json
 
 # Widget Preview related
 .widget_preview/
+
+# Local secrets (API keys) passed via --dart-define-from-file=env.json.
+# Never commit the real file — env.example.json is the template.
+env.json

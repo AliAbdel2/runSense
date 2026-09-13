@@ -9,7 +9,7 @@ const bool obstacleDetectionSupported = false;
 PerceptionService createLivePerceptionService(TtsService tts) =>
     throw UnsupportedError(
       'Camera-based obstacle detection requires Android or iOS. This build '
-      'targets the web — keep useMock = true in lib/app_config.dart.',
+      'targets the web and must use the mock perception service.',
     );
 
 Widget? buildRunCameraPreview(PerceptionService service) => null;

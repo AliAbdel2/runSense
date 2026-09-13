@@ -1,3 +1,5 @@
+from datetime import date
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 from app.models import Activity
@@ -5,6 +7,16 @@ from app.models import Activity
 
 def list_recent(db: Session, athlete_id="sara", limit=200):
     return list(db.scalars(select(Activity).where(Activity.athlete_id == athlete_id).order_by(Activity.date.desc()).limit(limit)))
+
+
+def list_in_range(db: Session, athlete_id: str, start: date, end: date) -> list[Activity]:
+    """Activities with start <= date < end, oldest first."""
+    statement = (
+        select(Activity)
+        .where(Activity.athlete_id == athlete_id, Activity.date >= start, Activity.date < end)
+        .order_by(Activity.date)
+    )
+    return list(db.scalars(statement))
 
 
 def upsert(db: Session, row: Activity) -> Activity:
