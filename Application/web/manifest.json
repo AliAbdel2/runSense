@@ -1,11 +1,11 @@
 {
-    "name": "runsense",
-    "short_name": "runsense",
+    "name": "RunSense",
+    "short_name": "RunSense",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#0175C2",
-    "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "background_color": "#FFFFFF",
+    "theme_color": "#33409E",
+    "description": "Voice-first running companion with real-time obstacle alerts for visually impaired runners.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [
