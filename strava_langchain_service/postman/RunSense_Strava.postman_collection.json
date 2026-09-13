@@ -1,0 +1,152 @@
+{
+  "info": {
+    "_postman_id": "0a977a90-b0f2-45d4-8bb8-runsense-strava",
+    "name": "RunSense Strava + LangChain",
+    "description": "Tests the standalone RunSense service, its LangChain tools, and Strava directly. No secret values are included.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "if (!pm.environment.get('after_epoch')) {",
+          "  pm.environment.set('after_epoch', Math.floor(Date.now() / 1000) - 28 * 86400);",
+          "}",
+          "if (!pm.environment.get('session_start')) {",
+          "  pm.environment.set('session_start', new Date(Date.now() - 86400000).toISOString());",
+          "}"
+        ]
+      }
+    }
+  ],
+  "item": [
+    {
+      "name": "RunSense HTTP API",
+      "auth": {"type": "bearer", "bearer": [{"key": "token", "value": "{{runsense_api_key}}", "type": "string"}]},
+      "item": [
+        {
+          "name": "Health",
+          "request": {"auth": {"type": "noauth"}, "method": "GET", "url": "{{service_base_url}}/health"},
+          "event": [{"listen": "test", "script": {"exec": ["pm.test('service is healthy', () => pm.response.to.have.status(200));"]}}]
+        },
+        {
+          "name": "List LangChain Tools",
+          "request": {"method": "GET", "url": "{{service_base_url}}/v1/tools"},
+          "event": [{"listen": "test", "script": {"exec": ["pm.test('tools returned', () => { pm.response.to.have.status(200); pm.expect(pm.response.json().tools.length).to.be.above(0); });"]}}]
+        },
+        {
+          "name": "Normalized Training History",
+          "request": {"method": "GET", "url": "{{service_base_url}}/v1/strava/training-history?weeks=4&per_page=100"},
+          "event": [{"listen": "test", "script": {"exec": [
+            "pm.test('normalized history returned', () => pm.response.to.have.status(200));",
+            "const body = pm.response.json();",
+            "if (body.activities && body.activities.length) pm.environment.set('activity_id', body.activities[0].id);"
+          ]}}]
+        },
+        {
+          "name": "Activity Detail",
+          "request": {"method": "GET", "url": "{{service_base_url}}/v1/strava/activities/{{activity_id}}"},
+          "event": [{"listen": "test", "script": {"exec": ["pm.test('activity returned', () => pm.response.to.have.status(200));"]}}]
+        },
+        {
+          "name": "Activity Laps",
+          "request": {"method": "GET", "url": "{{service_base_url}}/v1/strava/activities/{{activity_id}}/laps"},
+          "event": [{"listen": "test", "script": {"exec": ["pm.test('laps returned', () => pm.response.to.have.status(200));"]}}]
+        },
+        {
+          "name": "Activity Streams",
+          "request": {"method": "GET", "url": "{{service_base_url}}/v1/strava/activities/{{activity_id}}/streams?keys=time,distance,velocity_smooth,heartrate,moving"},
+          "event": [{"listen": "test", "script": {"exec": ["pm.test('streams returned', () => pm.response.to.have.status(200));"]}}]
+        },
+        {
+          "name": "Heart Rate Zones",
+          "request": {"method": "GET", "url": "{{service_base_url}}/v1/strava/zones"},
+          "event": [{"listen": "test", "script": {"exec": ["pm.test('zones returned or scope error identified', () => pm.expect([200, 502]).to.include(pm.response.code));"]}}]
+        },
+        {
+          "name": "Verify Completed Run",
+          "request": {"method": "GET", "url": "{{service_base_url}}/v1/strava/completed-run?session_start={{session_start}}&expected_distance_m={{expected_distance_m}}"},
+          "event": [{"listen": "test", "script": {"exec": ["pm.test('verification completed', () => pm.response.to.have.status(200));"]}}]
+        }
+      ]
+    },
+    {
+      "name": "LangChain Tool Invocation",
+      "auth": {"type": "bearer", "bearer": [{"key": "token", "value": "{{runsense_api_key}}", "type": "string"}]},
+      "item": [
+        {
+          "name": "Invoke Training History Tool",
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "body": {"mode": "raw", "raw": "{\n  \"arguments\": {\n    \"weeks\": 4,\n    \"per_page\": 100\n  }\n}"},
+            "url": "{{service_base_url}}/v1/tools/strava_get_training_history/invoke"
+          },
+          "event": [{"listen": "test", "script": {"exec": ["pm.test('LangChain tool invoked', () => { pm.response.to.have.status(200); pm.expect(pm.response.json().tool).to.eql('strava_get_training_history'); });"]}}]
+        },
+        {
+          "name": "Invoke Streams Tool",
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "body": {"mode": "raw", "raw": "{\n  \"arguments\": {\n    \"activity_id\": {{activity_id}},\n    \"keys\": [\"time\", \"distance\", \"velocity_smooth\", \"heartrate\", \"moving\"]\n  }\n}"},
+            "url": "{{service_base_url}}/v1/tools/strava_get_activity_streams/invoke"
+          },
+          "event": [{"listen": "test", "script": {"exec": ["pm.test('stream tool invoked', () => pm.response.to.have.status(200));"]}}]
+        },
+        {
+          "name": "Ask LangChain Agent",
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "body": {"mode": "raw", "raw": "{\n  \"question\": \"Summarize my last four weeks of running and mention any missing heart-rate data.\"\n}"},
+            "url": "{{service_base_url}}/v1/agent/chat"
+          },
+          "event": [{"listen": "test", "script": {"exec": ["pm.test('agent answered or reports missing Claude config', () => pm.expect([200, 502]).to.include(pm.response.code));"]}}]
+        }
+      ]
+    },
+    {
+      "name": "Direct Strava API",
+      "auth": {"type": "bearer", "bearer": [{"key": "token", "value": "{{strava_access_token}}", "type": "string"}]},
+      "item": [
+        {
+          "name": "Get Authenticated Athlete",
+          "request": {"method": "GET", "url": "{{strava_base_url}}/athlete"},
+          "event": [{"listen": "test", "script": {"exec": ["pm.test('Strava athlete request succeeds', () => pm.response.to.have.status(200));"]}}]
+        },
+        {
+          "name": "List Athlete Activities",
+          "request": {"method": "GET", "url": "{{strava_base_url}}/athlete/activities?after={{after_epoch}}&page=1&per_page=100"},
+          "event": [{"listen": "test", "script": {"exec": [
+            "pm.test('Strava activities request succeeds', () => pm.response.to.have.status(200));",
+            "const rows = pm.response.json();",
+            "if (Array.isArray(rows) && rows.length) pm.environment.set('activity_id', rows[0].id);"
+          ]}}]
+        },
+        {
+          "name": "Get Activity",
+          "request": {"method": "GET", "url": "{{strava_base_url}}/activities/{{activity_id}}?include_all_efforts=false"},
+          "event": [{"listen": "test", "script": {"exec": ["pm.test('Strava activity request succeeds', () => pm.response.to.have.status(200));"]}}]
+        },
+        {
+          "name": "Get Activity Laps",
+          "request": {"method": "GET", "url": "{{strava_base_url}}/activities/{{activity_id}}/laps"},
+          "event": [{"listen": "test", "script": {"exec": ["pm.test('Strava laps request succeeds', () => pm.response.to.have.status(200));"]}}]
+        },
+        {
+          "name": "Get Activity Streams",
+          "request": {"method": "GET", "url": "{{strava_base_url}}/activities/{{activity_id}}/streams?keys=time,distance,velocity_smooth,heartrate,moving&key_by_type=true"},
+          "event": [{"listen": "test", "script": {"exec": ["pm.test('Strava streams request succeeds', () => pm.response.to.have.status(200));"]}}]
+        },
+        {
+          "name": "Get Athlete Zones",
+          "request": {"method": "GET", "url": "{{strava_base_url}}/athlete/zones"},
+          "event": [{"listen": "test", "script": {"exec": ["pm.test('zones require profile:read_all', () => pm.expect([200, 401, 403]).to.include(pm.response.code));"]}}]
+        }
+      ]
+    }
+  ]
+}
