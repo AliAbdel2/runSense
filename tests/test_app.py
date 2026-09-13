@@ -1,5 +1,5 @@
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 
 import httpx
 import pytest
@@ -8,8 +8,10 @@ from fastapi.testclient import TestClient
 from app.config.settings import Settings
 from app.main import create_app
 from app.db import SessionLocal
-from app.models import PlanWeek, Session
+from app.models import Activity, Athlete, PlanWeek, Session
+from app.services import plan_service as plan_service_module
 from app.services.calendar_service import CalendarService, GoogleCalendarClient, GoogleCalendarInputError
+from app.services.plan_service import PlanService
 from app.services.strava_service import StravaClient, StravaService, normalize_activity
 
 
@@ -23,15 +25,54 @@ def auth(): return {"Authorization": "Bearer test-key"}
 
 
 def test_plan_uses_app_service_and_persists_normalized_rows(client, tmp_path):
-    response = client.post("/api/plan", json={"scenario": "guide_cancelled"})
+    week_start = date(2026, 9, 14)  # a Monday
+    with SessionLocal() as db:
+        db.add(Athlete(id="sara", name="Sara", guide_contacts=[], preferences={}))
+        db.commit()
+        for offset_days, km in ((21, 15.0), (14, 18.0), (7, 21.0)):
+            db.add(Activity(id=f"seed-{offset_days}", athlete_id="sara", date=week_start - timedelta(days=offset_days), km=km))
+        db.commit()
+
+    response = client.post("/api/plan", json={"scenario": "guide_cancelled", "week_start": week_start.isoformat()})
     assert response.status_code == 200
     plan = response.json()
-    assert plan["week_km"] == 19.0
+
+    # Baseline is the real trailing 3-week average of the seeded activities
+    # (15 + 18 + 21) / 3 = 18.0 — not the old hardcoded 19.0.
+    assert plan["baseline"] == {"km": 18.0, "source": "derived", "weeks_used": 3, "activity_count": 3}
+    assert plan["baseline_km"] == 18.0
+    assert plan["week_km"] == 18.0
+    assert plan["validation"]["passed"] is True
+    assert all(check["passed"] for check in plan["validation"]["checks"])
     assert plan["sessions"][1]["venue"] == "treadmill"
+
     with SessionLocal() as db:
         assert db.get(PlanWeek, plan["id"]) is not None
         rows = db.query(Session).filter(Session.plan_week_id == plan["id"]).all()
         assert len(rows) == 7
+
+
+def test_plan_with_no_activity_history_uses_defaulted_baseline(client):
+    week_start = date(2026, 9, 14)
+    response = client.post("/api/plan", json={"scenario": "baseline", "week_start": week_start.isoformat()})
+    assert response.status_code == 200
+    plan = response.json()
+    assert plan["baseline"]["source"] == "defaulted"
+    assert plan["baseline"]["activity_count"] == 0
+    assert plan["validation"]["passed"] is True
+
+
+def test_invalid_plan_is_never_persisted_to_plan_weeks(client, monkeypatch):
+    def always_fails(plan):
+        return {"passed": False, "checks": [{"name": "weekly_volume_cap", "passed": False, "detail": "forced failure for the test"}]}
+
+    monkeypatch.setattr(plan_service_module, "validate_plan", always_fails)
+
+    with SessionLocal() as db:
+        before = db.query(PlanWeek).count()
+        with pytest.raises(ValueError, match="failed validation"):
+            PlanService(db).create(week_start=date(2026, 9, 14))
+        assert db.query(PlanWeek).count() == before
 
 
 def test_live_session_persists_aggregate_and_exports_tcx(client):

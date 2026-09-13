@@ -69,6 +69,15 @@ dependencies:
   # `flutter build apk --debug` after touching this given the AGP 9.1.0 ceiling.
   wakelock_plus: ^1.2.8
 
+  # Cloud TTS (ElevenLabs) — the SAPI voices installed on this dev machine
+  # (David/Mark/Zira) are ~2006-era and sound robotic; ElevenLabs' neural
+  # voices are used instead when an API key is configured (see
+  # env.example.json). http fetches the synthesized audio bytes,
+  # audioplayers plays them back (has a web backend, unlike some
+  # alternatives, so this works in our Chrome dev target too).
+  http: ^1.2.2
+  audioplayers: ^6.1.0
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

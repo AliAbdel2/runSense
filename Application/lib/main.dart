@@ -5,6 +5,8 @@ import 'app_config.dart';
 import 'features/obstacle_detection/obstacle_detection_entry.dart';
 import 'screens/home_screen.dart';
 import 'services/agent_chat_service.dart';
+import 'services/live/live_agent_chat_service.dart';
+import 'services/live/live_plan_service.dart';
 import 'services/location_service.dart';
 import 'services/mock/mock_agent_chat_service.dart';
 import 'services/mock/mock_location_service.dart';
@@ -37,28 +39,30 @@ class RunSenseApp extends StatelessWidget {
         // read the ones declared above it.
         Provider<TtsService>(create: (_) => TtsService()),
         Provider<PlanService>(
-          create: (_) => useMock
+          create: (_) => (forceMocks || useMockPlan)
               ? MockPlanService()
-              : throw UnimplementedError('LivePlanService not wired yet'),
+              : LivePlanService(),
         ),
         Provider<SessionService>(
-          create: (_) => useMock
+          create: (_) => (forceMocks || useMockSession)
               ? MockSessionService()
               : throw UnimplementedError('LiveSessionService not wired yet'),
         ),
         Provider<PerceptionService>(
-          create: (ctx) => (useLiveCamera && obstacleDetectionSupported && !forceMocks)
+          create: (ctx) => (!forceMocks &&
+                  !useMockPerception &&
+                  obstacleDetectionSupported)
               ? createLivePerceptionService(ctx.read<TtsService>())
               : MockPerceptionService(),
           dispose: (_, service) => service.dispose(),
         ),
         Provider<AgentChatService>(
-          create: (_) => useMock
+          create: (_) => (forceMocks || useMockAgentChat)
               ? MockAgentChatService()
-              : throw UnimplementedError('LiveAgentChatService not wired yet'),
+              : LiveAgentChatService(),
         ),
         Provider<LocationService>(
-          create: (_) => useMock
+          create: (_) => (forceMocks || useMockLocation)
               ? MockLocationService()
               : throw UnimplementedError('LiveLocationService not wired yet'),
         ),
