@@ -4,7 +4,9 @@ import 'package:provider/provider.dart';
 import 'app_config.dart';
 import 'screens/home_screen.dart';
 import 'services/agent_chat_service.dart';
+import 'services/location_service.dart';
 import 'services/mock/mock_agent_chat_service.dart';
+import 'services/mock/mock_location_service.dart';
 import 'services/mock/mock_perception_service.dart';
 import 'services/mock/mock_plan_service.dart';
 import 'services/mock/mock_session_service.dart';
@@ -43,6 +45,14 @@ class RunSenseApp extends StatelessWidget {
           create: (_) => useMock
               ? MockAgentChatService()
               : throw UnimplementedError('LiveAgentChatService not wired yet'),
+        ),
+        // Not yet consumed by any screen — added ahead of the real GPS work
+        // (see obstacle_detection_module_plan.md for the camera side) so the
+        // eventual LiveLocationService is a one-file swap.
+        Provider<LocationService>(
+          create: (_) => useMock
+              ? MockLocationService()
+              : throw UnimplementedError('LiveLocationService not wired yet'),
         ),
         Provider<TtsService>(create: (_) => TtsService()),
       ],
