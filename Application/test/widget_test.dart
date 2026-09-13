@@ -1,4 +1,3 @@
-import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -52,16 +51,21 @@ void main() {
     expect(find.bySemanticsLabel(RegExp(r'^alerts 3$')), findsOneWidget);
 
     await tester.tap(find.text('END SESSION'));
-    await tester.pump();
-    print('after tap+pump exception=${tester.takeException()}');
+    await tester.pump(); // rebuild into the _ending state
+    // Not pumpAndSettle for this step: it stops as soon as one 100ms step
+    // produces no new frame, which can happen well before the mocked 500ms
+    // endSession() delay's Future actually fires — it isn't guaranteed to
+    // keep advancing through a quiet gap toward a still-pending Timer.
     await tester.pump(const Duration(milliseconds: 700));
-    print('after 700ms pump exception=${tester.takeException()}');
-    print(tester.allWidgets.whereType<Text>().map((t) => t.data).toList());
+    // stopSimulation()/stopTracking() already ran synchronously at the top
+    // of _endSession(), so the periodic location timer is already
+    // cancelled — safe to settle the page-route transition from here.
     await tester.pumpAndSettle();
-    print('after pumpAndSettle exception=${tester.takeException()}');
 
     expect(find.text('Session Summary'), findsOneWidget);
     // _StatRow (summary screen) wraps each row in Semantics(label: '$label: $value').
     expect(find.bySemanticsLabel(RegExp(r'^Alerts: 3$')), findsOneWidget);
+
+    semanticsHandle.dispose();
   });
 }
