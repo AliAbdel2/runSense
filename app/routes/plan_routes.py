@@ -4,7 +4,7 @@ from app.db import get_db
 from app.schemas.plan import PlanRequest
 from app.services.plan_service import PlanService
 
-router = APIRouter(prefix="/api", tags=["planning"])
+router = APIRouter(prefix="/v1/plan", tags=["planning"])
 
 
 @router.post("/plan")

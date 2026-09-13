@@ -27,6 +27,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.settings = settings
     app.dependency_overrides[Settings.from_env] = lambda: settings
 
+
+    # TO BE REVIEWED: ---------------------------------------------------------
     def persist(snapshot):
         db = SessionLocal()
         try:
@@ -34,7 +36,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             ended = datetime.fromisoformat(snapshot["ended_at"].replace("Z", "+00:00")) if snapshot.get("ended_at") else None
             upsert(db, {"id": snapshot["session_id"], "athlete_id": "sara", "name": snapshot["name"], "sport_type": snapshot["sport_type"], "state": snapshot["state"], "started_at": started, "ended_at": ended, "summary_json": snapshot, "guide_status": "not_required"})
         finally: db.close()
-
+    #--------------------------------------------------------------------------
     app.state.live_sessions = LiveSessionManager(persist=persist)
 
     @app.middleware("http")

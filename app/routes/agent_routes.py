@@ -5,7 +5,7 @@ from app.agents.coach_agent import AgentError, run_agent
 from app.services.calendar_service import CalendarService, GoogleCalendarClient, build_calendar_tools
 from app.services.strava_service import StravaClient, StravaService, build_strava_tools
 
-router = APIRouter(prefix="/v1", tags=["agent"])
+router = APIRouter(prefix="/v1/agent", tags=["agent"])
 
 
 def toolset(settings: Settings):
