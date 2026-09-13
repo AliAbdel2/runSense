@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 
 import '../models/guide_status.dart';
+import '../theme/app_colors.dart';
 
 /// Guide status indicator for the Week Plan list (plan section 6.3).
 /// Icon + text + color together — never color alone, per the plan's
-/// accessibility rule.
+/// accessibility rule. Colors are shared with Live Run's alert tiers
+/// (warning/danger) so the same hue always means the same thing app-wide.
 class GuideStatusChip extends StatelessWidget {
   final GuideStatus status;
 
@@ -13,13 +15,13 @@ class GuideStatusChip extends StatelessWidget {
   (Color, IconData, String) _visuals() {
     switch (status) {
       case GuideStatus.accepted:
-        return (Colors.green.shade700, Icons.check_circle, 'Guide confirmed');
+        return (AppSemanticColors.accepted, Icons.check_circle, 'Guide confirmed');
       case GuideStatus.pending:
-        return (Colors.amber.shade800, Icons.hourglass_top, 'Guide pending');
+        return (AppSemanticColors.warning, Icons.hourglass_top, 'Guide pending');
       case GuideStatus.declined:
-        return (Colors.red.shade700, Icons.cancel, 'Guide declined');
+        return (AppSemanticColors.danger, Icons.cancel, 'Guide declined');
       case GuideStatus.notNeeded:
-        return (Colors.grey.shade600, Icons.block, 'No guide needed');
+        return (AppSemanticColors.neutral, Icons.block, 'No guide needed');
     }
   }
 
@@ -29,9 +31,10 @@ class GuideStatusChip extends StatelessWidget {
     return Semantics(
       label: label,
       child: Chip(
-        avatar: Icon(icon, color: Colors.white, size: 18),
-        label: Text(label, style: const TextStyle(color: Colors.white)),
+        avatar: Icon(icon, color: AppSemanticColors.onFill, size: 18),
+        label: Text(label, style: const TextStyle(color: AppSemanticColors.onFill)),
         backgroundColor: color,
+        padding: const EdgeInsets.symmetric(horizontal: 4),
       ),
     );
   }

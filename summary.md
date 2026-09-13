@@ -379,3 +379,49 @@ the critical path to flipping `useMock` to `false`:
 
 Neither is fixed here — both are integration decisions that belong with whoever
 wires Live Run to the live pipeline.
+
+---
+
+## 11. Detection envelope retuned for running pace
+
+Verified on the emulator with the host webcam as the back camera
+(`hw.camera.back=webcam0`), which is what made the tuning testable at all — the
+default `virtualscene` back camera only offers fixed furniture at a fixed
+distance.
+
+**The problem.** The original thresholds were set for walking distances. Box
+height ratio stands in for distance: for an object of real height `H` at
+distance `d`, with a ~60° vertical FOV the frame spans about `1.155 × d`, so
+`d ≈ H / (1.155 × ratio)`. For a 1.7 m person the old constants worked out as:
+
+| Constant | Old | Distance | Meaning |
+| --- | --- | --- | --- |
+| `_minHeightRatio` | 0.20 | ~7.4 m | below this, ignored entirely |
+| `_proximityMedium` | 0.45 | ~3.3 m | Warning |
+| `_proximityHigh` | 0.65 | ~2.3 m | DANGER |
+
+DANGER at 2.3 m is **0.8 s** of warning at 3 m/s — less than reaction time, let
+alone stopping distance. The alert would arrive after it was useful.
+
+**The change.** Retuned for roughly 1.5 s of lead at running pace:
+
+| Constant | New | Distance |
+| --- | --- | --- |
+| `_minHeightRatio` | 0.12 | ~12 m |
+| `_proximityMedium` | 0.22 | ~7 m |
+| `_proximityHigh` | 0.38 | ~4 m |
+
+**The trade-off, stated plainly.** A lower floor lets more small, jittery
+far-field boxes through, so expect more chatter from distant clutter. If that
+becomes a problem, raise `_minHeightRatio` first — it gates everything else.
+
+Two caveats on the distance figures: they assume a person-height object, so a
+bollard, a curb or a low barrier will read as further away than it is; and the
+FOV is assumed, not measured. They are a defensible starting point for field
+testing, not calibrated values. Plan §13 step 10 still stands.
+
+**A display hold was tried and removed.** An intermediate version held each
+alert on screen for 2 s so a demo audience could read it, with escalation
+exempt. Tested and reverted at the user's request: the readout is back to
+responding immediately. If it's ever wanted for a demo, it was a single
+`_alertHoldTime` constant plus a display-policy check in `_onFrame`.

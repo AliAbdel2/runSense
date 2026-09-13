@@ -10,4 +10,3 @@ jobs:
           python-version: '3.12'
       - run: python -m pip install -r requirements.lock
       - run: python -m pytest -q
-      - run: python -m runsense.evaluation

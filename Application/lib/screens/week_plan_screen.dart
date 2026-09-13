@@ -5,8 +5,11 @@ import 'package:provider/provider.dart';
 import '../models/session.dart';
 import '../services/plan_service.dart';
 import '../services/tts_service.dart';
+import '../theme/app_spacing.dart';
+import '../theme/app_theme.dart';
 import '../widgets/accessible_back_button.dart';
 import '../widgets/guide_status_chip.dart';
+import '../widgets/session_type_badge.dart';
 
 /// Week Plan screen (plan section 6.3): read-only list of PlannedSessions,
 /// one sentence each, a GuideStatusChip, and a long-press to trigger
@@ -81,9 +84,9 @@ class _WeekPlanScreenState extends State<WeekPlanScreen> {
             : Stack(
                 children: [
                   ListView.separated(
-                    padding: const EdgeInsets.all(16),
+                    padding: const EdgeInsets.all(AppSpacing.md),
                     itemCount: _week.length,
-                    separatorBuilder: (_, _) => const SizedBox(height: 12),
+                    separatorBuilder: (_, _) => const SizedBox(height: AppSpacing.sm),
                     itemBuilder: (context, index) {
                       final session = _week[index];
                       return Semantics(
@@ -98,13 +101,14 @@ class _WeekPlanScreenState extends State<WeekPlanScreen> {
                               },
                         child: InkWell(
                           onLongPress: _replanning ? null : () => _requestReplan(session),
-                          borderRadius: BorderRadius.circular(12),
+                          borderRadius: BorderRadius.circular(14),
                           child: Container(
                             constraints: const BoxConstraints(minHeight: 64),
-                            padding: const EdgeInsets.all(16),
+                            padding: const EdgeInsets.all(AppSpacing.md),
                             decoration: BoxDecoration(
-                              border: Border.all(color: Theme.of(context).dividerColor),
-                              borderRadius: BorderRadius.circular(12),
+                              color: Theme.of(context).panelColor,
+                              border: Border.all(color: Theme.of(context).borderColor),
+                              borderRadius: BorderRadius.circular(14),
                             ),
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
@@ -113,7 +117,7 @@ class _WeekPlanScreenState extends State<WeekPlanScreen> {
                                   children: [
                                     Expanded(
                                       child: Text(
-                                        '${session.date} · ${_typeLabel(session.type)}',
+                                        session.date,
                                         style: Theme.of(context)
                                             .textTheme
                                             .titleMedium
@@ -123,7 +127,9 @@ class _WeekPlanScreenState extends State<WeekPlanScreen> {
                                     GuideStatusChip(status: session.guideStatus),
                                   ],
                                 ),
-                                const SizedBox(height: 6),
+                                const SizedBox(height: AppSpacing.xs),
+                                SessionTypeBadge(type: session.type),
+                                const SizedBox(height: AppSpacing.xs),
                                 Text(
                                   session.description,
                                   style: Theme.of(context).textTheme.bodyLarge,
@@ -137,7 +143,7 @@ class _WeekPlanScreenState extends State<WeekPlanScreen> {
                   ),
                   if (_replanning)
                     Container(
-                      color: Colors.black26,
+                      color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.15),
                       child: const Center(child: CircularProgressIndicator()),
                     ),
                 ],

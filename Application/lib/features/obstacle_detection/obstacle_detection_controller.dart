@@ -45,26 +45,26 @@ class ObstacleDetectionController extends ChangeNotifier {
 
   DateTime _lastProcessed = DateTime.fromMillisecondsSinceEpoch(0);
   DateTime _lastHighAlert = DateTime.fromMillisecondsSinceEpoch(0);
-  DateTime _lastAlertShownAt = DateTime.fromMillisecondsSinceEpoch(0);
   final Map<int, DateTime> _lastAlertPerObject = {}; // trackingId -> time
 
   // Tuning knobs — adjust during field testing (module plan §10, §13 step 10).
   static const _minFrameGap = Duration(milliseconds: 150); // ~6-7 fps analyzed
   static const _reAlertGap = Duration(seconds: 2);
   static const _highRepeatGap = Duration(milliseconds: 700);
-  static const _minHeightRatio = 0.20; // ignore tiny/far specks
-  static const _proximityMedium = 0.45; // box-height ratio thresholds
-  static const _proximityHigh = 0.65;
-
-  /// How long [lastAlert] holds the on-screen readout before a clear frame or a
-  /// same/lower-urgency alert may replace it.
-  ///
-  /// DISPLAY ONLY — frames are still analysed at [_minFrameGap], and speech and
-  /// haptics keep their own cadence ([_reAlertGap], [_highRepeatGap]). Without
-  /// this the text flips between "left" and "right" several times a second,
-  /// which is fine for the ears but unreadable for anyone watching the screen.
-  /// Escalation is exempt: a more urgent alert always takes the readout at once.
-  static const _alertHoldTime = Duration(seconds: 2);
+  // Box-height ratio thresholds, set for RUNNING pace rather than walking.
+  //
+  // Ratio is a stand-in for distance: for an object of real height H at
+  // distance d, with a ~60 degree vertical FOV, the frame spans about 1.155*d,
+  // so d ~= H / (1.155 * ratio). Taking a 1.7m person, the values below put
+  // first notice near 12m, Warning near 7m and DANGER near 4m — roughly 1.5s of
+  // warning at 3 m/s, which is the point of alerting at all. The previous set
+  // (0.20 / 0.45 / 0.65) only reached DANGER at ~2.3m, under a second out.
+  //
+  // The cost of the lower floor is more small, jittery far-field boxes getting
+  // through; if far-off clutter starts chattering, raise _minHeightRatio first.
+  static const _minHeightRatio = 0.12; // ~12m for a person; below this, ignore
+  static const _proximityMedium = 0.22; // ~7m
+  static const _proximityHigh = 0.38; // ~4m
 
   bool get isRunning => _running;
   bool get isStarting => _starting;
@@ -102,7 +102,6 @@ class ObstacleDetectionController extends ChangeNotifier {
     await feedback.announce('Obstacle detection off');
     _lastAlertPerObject.clear();
     _lastAlert = null;
-    _lastAlertShownAt = DateTime.fromMillisecondsSinceEpoch(0);
     notifyListeners();
   }
 
@@ -134,10 +133,8 @@ class ObstacleDetectionController extends ChangeNotifier {
           _pickMostThreatening(objects, frame.width, frame.height);
       if (obstacle == null) {
         // Path is clear again — drop the stale alert so the on-screen readout
-        // stops claiming there's still something there, but not before it has
-        // been on screen long enough to read.
-        if (_lastAlert != null &&
-            now.difference(_lastAlertShownAt) >= _alertHoldTime) {
+        // stops claiming there's still something there.
+        if (_lastAlert != null) {
           _lastAlert = null;
           if (!_disposed) notifyListeners();
         }
@@ -151,10 +148,7 @@ class ObstacleDetectionController extends ChangeNotifier {
       _pruneAlertHistory(now);
       if (!_shouldFire(alert, now)) return;
 
-      if (_shouldReplaceReadout(alert, now)) {
-        _lastAlert = alert;
-        _lastAlertShownAt = now;
-      }
+      _lastAlert = alert;
       if (!_alerts.isClosed) _alerts.add(alert);
       if (speakAlerts) await feedback.deliver(alert);
       if (!_disposed) notifyListeners();
@@ -244,16 +238,6 @@ class ObstacleDetectionController extends ChangeNotifier {
     if (last != null && now.difference(last) < _reAlertGap) return false;
     _lastAlertPerObject[id] = now;
     return true;
-  }
-
-  /// Display policy for [lastAlert] — see [_alertHoldTime]. A more urgent alert
-  /// preempts immediately so an escalation to DANGER is never made to wait
-  /// behind a notice; anything else waits out the hold.
-  bool _shouldReplaceReadout(ObstacleAlert alert, DateTime now) {
-    final current = _lastAlert;
-    if (current == null) return true;
-    if (alert.urgency.index > current.urgency.index) return true;
-    return now.difference(_lastAlertShownAt) >= _alertHoldTime;
   }
 
   /// Tracking ids are never reused but do keep climbing over a long run, so

@@ -6,7 +6,10 @@ import '../models/session.dart';
 import '../services/agent_chat_service.dart';
 import '../services/plan_service.dart';
 import '../services/tts_service.dart';
+import '../theme/app_spacing.dart';
+import '../theme/app_theme.dart';
 import '../widgets/big_action_button.dart';
+import '../widgets/session_type_badge.dart';
 import 'live_run_screen.dart';
 import 'week_plan_screen.dart';
 
@@ -44,13 +47,20 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  // Deliberately NOT keyed off the real calendar date: MockData.baseWeek()
+  // assigns each session to its real next-occurring weekday, so matching
+  // DateTime.now() meant Home's "today" — and whether Start Session was even
+  // enabled — depended on which real-world weekday the app happened to be
+  // opened on (rest days disable it). For a demo that's a landmine. Always
+  // surface the hard-interval day instead, so the primary demo path (start a
+  // session, live alerts, guide-cancellation replan) works regardless of
+  // what day it actually is. Week Plan still shows the true 7-day week.
   PlannedSession? _pickToday(List<PlannedSession> week) {
     if (week.isEmpty) return null;
-    final todayIso = DateTime.now().toIso8601String().substring(0, 10);
     for (final s in week) {
-      if (s.date == todayIso) return s;
+      if (s.id == 'tue-hard') return s;
     }
-    return week.first; // fallback for the demo if today isn't in the mocked week
+    return week.first;
   }
 
   Future<void> _startSession() async {
@@ -109,6 +119,7 @@ class _HomeScreenState extends State<HomeScreen> {
             child: IconButton(
               icon: const Icon(Icons.calendar_view_week),
               tooltip: 'Week plan',
+              color: Theme.of(context).colorScheme.primary,
               constraints: const BoxConstraints(minWidth: 64, minHeight: 64),
               onPressed: _openWeekPlan,
             ),
@@ -117,12 +128,19 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
       body: SafeArea(
         child: Padding(
-          padding: const EdgeInsets.all(24),
+          padding: const EdgeInsets.all(AppSpacing.lg),
           child: _loading
               ? const Center(child: CircularProgressIndicator())
               : Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
+                    if (today != null) ...[
+                      SessionTypeBadge(
+                        type: today.type,
+                        color: Theme.of(context).colorScheme.primary,
+                      ),
+                      const SizedBox(height: AppSpacing.sm),
+                    ],
                     Semantics(
                       liveRegion: true,
                       child: Text(
@@ -130,20 +148,28 @@ class _HomeScreenState extends State<HomeScreen> {
                         style: Theme.of(context).textTheme.headlineSmall,
                       ),
                     ),
-                    const SizedBox(height: 8),
-                    if (today != null)
+                    if (today != null) ...[
+                      const SizedBox(height: AppSpacing.sm),
                       Text(
                         '${today.description} · ${today.venue}',
                         style: Theme.of(context).textTheme.bodyMedium,
                       ),
+                    ],
                     const Spacer(),
                     if (_coachReply != null) ...[
                       Semantics(
                         liveRegion: true,
-                        child: Text(_coachReply!,
-                            style: Theme.of(context).textTheme.bodyLarge),
+                        child: Container(
+                          padding: const EdgeInsets.all(AppSpacing.md),
+                          decoration: BoxDecoration(
+                            color: Theme.of(context).panelColor,
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                          child: Text(_coachReply!,
+                              style: Theme.of(context).textTheme.bodyLarge),
+                        ),
                       ),
-                      const SizedBox(height: 16),
+                      const SizedBox(height: AppSpacing.md),
                     ],
                     BigActionButton(
                       label: 'START SESSION',
@@ -152,7 +178,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           ? null
                           : _startSession,
                     ),
-                    const SizedBox(height: 16),
+                    const SizedBox(height: AppSpacing.md),
                     BigActionButton(
                       label: _askingCoach ? 'LISTENING…' : 'ASK COACH',
                       semanticLabel: 'Ask coach',
@@ -160,7 +186,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       onPressed: _askingCoach ? null : _askCoach,
                     ),
                     if (obstacleDetectionSupported) ...[
-                      const SizedBox(height: 16),
+                      const SizedBox(height: AppSpacing.md),
                       BigActionButton(
                         label: 'OBSTACLE DETECTION',
                         semanticLabel: 'Open obstacle detection',

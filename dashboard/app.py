@@ -29,8 +29,8 @@ def _optional(choice: str) -> str | None:
 def main() -> None:
     st.set_page_config(page_title="RunSense observability", layout="wide")
     st.title("RunSense observability")
-    st.caption(f"Reading {data.database_path()} directly. Personal Strava previews are memory-only "
-               "and never recorded here.")
+    st.caption(f"Reading {data.database_path()} directly. Raw provider responses and GPS "
+               "coordinates are never recorded here.")
 
     limit = st.sidebar.slider("Rows", min_value=10, max_value=1000, value=data.DEFAULT_LIMIT, step=10)
 
