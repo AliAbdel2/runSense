@@ -26,4 +26,18 @@
 - No mock data, no mock service implementations, no UI/screens built yet — intentionally out of scope for Checkpoint 1.
 - `flutter analyze` — no issues.
 
-**Next checkpoint (2):** implement `lib/services/mock/mock_data.dart` (Sara persona) and the four `Mock*Service` classes per section 5.
+## Housekeeping (between checkpoints 1 and 2)
+- Pulled `origin/main` (fast-forward, no conflicts): backend restructured from `runsense/` into an `app/` package. `Application/` was untracked so it rode through unaffected.
+- Removed the stale `mobile/` React Native/Expo scaffold entirely (36 files) — the Flutter app in `Application/` replaces it, so it was dead weight. Committed as `51695b7`.
+- Checked `app/models/{athlete,session,alert,activity,plan_week}.py` on the backend — currently empty placeholder files, so there was nothing yet to cross-check our Dart model field names against. Revisit once a teammate fills those in (plan section 3 says our models should mirror them).
+
+## Checkpoint 2 — Mock data + mock services
+- `lib/services/mock/mock_data.dart`: Sara persona (`MockData.athlete`), `baseWeek()` (Mon rest, Tue hard interval/guide accepted/track, Wed rest, Thu easy/no guide, Fri rest, Sat long run/guide accepted, Sun rest), `adaptedWeek()` (Tue flips to pending "guide cancelled", Thu extends to 7k to compensate — this is what `requestReplan()` swaps in), and `alertScript` (the exact t+2s/t+6s/t+9s NOTICE/WARNING/DANGER sequence from section 5, as a list of `ScriptedAlertCue` so it's editable in seconds before a demo).
+- `lib/services/mock/mock_plan_service.dart`: `MockPlanService implements PlanService` — 300ms simulated delay, `requestReplan()` swaps in `MockData.adaptedWeek()`.
+- `lib/services/mock/mock_perception_service.dart`: `MockPerceptionService implements PerceptionService` — broadcast `StreamController<ObstacleAlert>`, `startSimulation()` schedules one `Timer` per `alertScript` cue (cancels/resets any prior timers first), `stopSimulation()` cancels them. Added a non-interface `dispose()` to close the controller when the owning screen goes away.
+- `lib/services/mock/mock_agent_chat_service.dart`: `MockAgentChatService implements AgentChatService` — keyword match on "plan"+"week", "guide", "cancel"/"replan", else an echo fallback.
+- `lib/services/mock/mock_session_service.dart`: `MockSessionService implements SessionService`.
+  - **Deviation, flagged:** section 5 says `endSession()` should "return one [a CompletedSession] with adaptationNote set," but the section 4 interface locks `endSession` to `Future<void>`. Rather than change the already-built contract, added a non-interface field `lastCompleted` that's populated when `endSession()` resolves (with `adaptationNote: 'Thu reduced because Tue was cut short'`). Whichever screen shows the post-run summary should read `(sessionService as MockSessionService).lastCompleted` for now — if a `LiveSessionService` needs this later, consider promoting a `completedSessions` stream onto the `SessionService` interface itself instead of this cast.
+- `flutter pub get` + `flutter analyze` — no issues.
+
+**Next checkpoint (3):** build the Home/Today screen (plan section 6.1) — speaks `spokenSummary` via `flutter_tts` on open, big Start Session button, secondary Ask Coach button, pulling from `MockPlanService` through Provider. This is also where `lib/services/tts_service.dart` (real, not mocked) finally gets built, per the section 7 hour breakdown.
