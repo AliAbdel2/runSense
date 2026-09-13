@@ -3,10 +3,10 @@
 ///
 /// Split per-service (rather than one flag) because they go live on
 /// different schedules. Plan and AgentChat use the FastAPI backend, while
-/// Session and Location still use their mock implementations. Perception uses
-/// the live camera pipeline on Android/iOS and falls back to the mock on web.
+/// Session, Plan, and AgentChat use FastAPI. Location uses the device GPS, and
+/// Perception uses the live camera pipeline on Android/iOS with a web fallback.
 const bool useMockPlan = false;
 const bool useMockAgentChat = false;
-const bool useMockSession = true;
+const bool useMockSession = false;
 const bool useMockPerception = false;
-const bool useMockLocation = true;
+const bool useMockLocation = false;

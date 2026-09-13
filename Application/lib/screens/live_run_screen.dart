@@ -67,6 +67,7 @@ class _LiveRunScreenState extends State<LiveRunScreen>
   // "Looking up a deactivated widget's ancestor is unsafe."
   PerceptionService? _perception;
   LocationService? _location;
+  SessionService? _sessionService;
   RunNarrator? _narrator;
 
   @override
@@ -82,6 +83,7 @@ class _LiveRunScreenState extends State<LiveRunScreen>
     final location = context.read<LocationService>();
     _perception = perception;
     _location = location;
+    _sessionService = sessionService;
     _narrator = RunNarrator(context.read<TtsService>());
     try {
       await WakelockPlus.enable().timeout(const Duration(seconds: 5));
@@ -95,8 +97,16 @@ class _LiveRunScreenState extends State<LiveRunScreen>
     _sub = perception.alertStream().listen(_onAlert);
     perception.startSimulation();
     _startTime = DateTime.now();
-    _locSub = location.positionStream().listen(_onFix);
-    location.startTracking();
+    var locationGranted = false;
+    try {
+      locationGranted = await location
+          .requestPermission()
+          .timeout(const Duration(seconds: 10));
+    } catch (_) {}
+    if (locationGranted) {
+      _locSub = location.positionStream().listen(_onFix);
+      location.startTracking();
+    }
   }
 
   @override
@@ -135,6 +145,15 @@ class _LiveRunScreenState extends State<LiveRunScreen>
       }
       _lastFix = fix;
     });
+    final sessionId = _sessionId;
+    final sessionService = _sessionService;
+    if (sessionId != null && sessionService != null) {
+      unawaited(
+        sessionService
+            .addLocationSample(sessionId, fix)
+            .catchError((_) {}),
+      );
+    }
     final paceUtterance = _paceCoach.onFix(fix);
     if (paceUtterance != null) {
       _narrator?.announcePace(paceUtterance);
@@ -175,25 +194,27 @@ class _LiveRunScreenState extends State<LiveRunScreen>
       await WakelockPlus.disable().timeout(const Duration(seconds: 5));
     } catch (_) {}
     final sessionId = _sessionId;
-    if (sessionId != null) {
-      await sessionService.endSession(sessionId);
-    }
+    final backendCompleted = sessionId == null
+        ? null
+        : await sessionService.endSession(sessionId);
     if (!mounted) return;
 
-    // MockSessionService.endSession() can't return the CompletedSession
-    // directly (the SessionService interface locks it to Future<void> — see
-    // the checkpoint-2 deviation note in PROGRESS.md), so this cast is the
-    // documented way to read its adaptationNote. alertCount, actualKm and
-    // duration are all this screen's own live-observed numbers now (from the
-    // alert stream and LocationService), not the mock's hardcoded stand-ins.
+    // Mock sessions keep the canned adaptation note, while a live session uses
+    // the backend's accepted GPS distance and active elapsed time. Alert count
+    // remains local because obstacle inference intentionally stays on-device.
     final mockCompleted =
         sessionService is MockSessionService ? sessionService.lastCompleted : null;
     final elapsed =
         _startTime == null ? Duration.zero : DateTime.now().difference(_startTime!);
+    final useBackendSummary = sessionService is! MockSessionService;
     final summary = CompletedSession(
       sessionId: mockCompleted?.sessionId ?? sessionId ?? widget.plannedSessionId,
-      actualKm: _distanceMeters / 1000,
-      duration: elapsed,
+      actualKm: useBackendSummary
+          ? backendCompleted?.actualKm ?? _distanceMeters / 1000
+          : _distanceMeters / 1000,
+      duration: useBackendSummary
+          ? backendCompleted?.duration ?? elapsed
+          : elapsed,
       alertCount: _alertCount,
       adaptationNote: mockCompleted?.adaptationNote,
     );

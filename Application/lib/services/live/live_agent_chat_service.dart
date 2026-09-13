@@ -7,15 +7,12 @@ import '../api_config.dart';
 
 /// Backed by POST /v1/agent/chat (app/routes/agent_routes.py -> run_agent).
 ///
-/// No Authorization header is sent: RUNSENSE_API_KEY is unset for the
-/// hackathon, so app/middleware/auth.py's /v1/* gate is a no-op. Add a
-/// Bearer header here if that changes.
 class LiveAgentChatService implements AgentChatService {
   @override
   Future<String> sendMessage(String text) async {
     final response = await http.post(
       Uri.parse('$apiBaseUrl/v1/agent/chat'),
-      headers: {'Content-Type': 'application/json'},
+      headers: apiJsonHeaders(),
       body: jsonEncode({'question': text}),
     );
     if (response.statusCode != 200) {

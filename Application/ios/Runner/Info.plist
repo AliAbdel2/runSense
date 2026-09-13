@@ -5,6 +5,8 @@
 	<!-- Obstacle detection module (obstacle_detection_module_plan.md 4.3) -->
 	<key>NSCameraUsageDescription</key>
 	<string>The camera is used to detect obstacles ahead of you while you run.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Your location is used to measure distance and pace during a run.</string>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
 	<key>CFBundleDevelopmentRegion</key>
