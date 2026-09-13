@@ -4,9 +4,10 @@ import 'package:provider/provider.dart';
 import '../models/session.dart';
 import '../services/agent_chat_service.dart';
 import '../services/plan_service.dart';
-import '../services/session_service.dart';
 import '../services/tts_service.dart';
 import '../widgets/big_action_button.dart';
+import 'live_run_screen.dart';
+import 'week_plan_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -54,11 +55,15 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _startSession() async {
     final today = _today;
     if (today == null) return;
-    final sessionService = context.read<SessionService>();
     final tts = context.read<TtsService>();
-    await sessionService.startSession(today.id);
     await tts.speak('Starting session: ${today.description}');
-    // TODO(checkpoint 6): navigate to the Live Run screen once it exists.
+    if (!mounted) return;
+    // Full checkpoint 6 nav (returning to Home with the adapted plan after a
+    // replan) isn't built yet — this is just enough to reach and test the
+    // Live Run screen. LiveRunScreen itself calls SessionService.startSession().
+    await Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => LiveRunScreen(plannedSessionId: today.id)),
+    );
   }
 
   Future<void> _askCoach() async {
@@ -77,11 +82,35 @@ class _HomeScreenState extends State<HomeScreen> {
     await tts.speak(reply);
   }
 
+  Future<void> _openWeekPlan() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const WeekPlanScreen()),
+    );
+    // A long-press replan on the Week Plan screen may have changed today's
+    // entry (e.g. Tue's guide got cancelled) — reload so Home reflects it.
+    if (!mounted) return;
+    await _loadAndAnnounce();
+  }
+
   @override
   Widget build(BuildContext context) {
     final today = _today;
     return Scaffold(
-      appBar: AppBar(title: const Text('RunSense')),
+      appBar: AppBar(
+        title: const Text('RunSense'),
+        actions: [
+          Semantics(
+            button: true,
+            label: 'Week plan',
+            child: IconButton(
+              icon: const Icon(Icons.calendar_view_week),
+              tooltip: 'Week plan',
+              constraints: const BoxConstraints(minWidth: 64, minHeight: 64),
+              onPressed: _openWeekPlan,
+            ),
+          ),
+        ],
+      ),
       body: SafeArea(
         child: Padding(
           padding: const EdgeInsets.all(24),
