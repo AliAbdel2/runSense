@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f7f3ed">
+  <title>RunSense · Overview</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <a class="skip-link" href="#main-content">Skip to main content</a>
+  <div class="app-shell">
+    <aside class="sidebar" aria-label="Primary navigation">
+      <div class="brand-lockup">
+        <div class="brand-mark" aria-hidden="true">RS</div>
+        <div>
+          <p class="brand-name">RunSense</p>
+          <p class="brand-caption">Voice-first coaching</p>
+        </div>
+      </div>
+      <nav class="side-nav" aria-label="RunSense sections">
+        <a class="nav-link is-active" href="#overview" aria-current="page">
+          <span class="nav-icon" aria-hidden="true">◒</span><span>Overview</span>
+        </a>
+        <a class="nav-link" href="#week-plan"><span class="nav-icon" aria-hidden="true">▦</span><span>Week plan</span></a>
+        <a class="nav-link" href="#agent-trace"><span class="nav-icon" aria-hidden="true">⌁</span><span>Agent trace</span></a>
+        <a class="nav-link" href="#evaluation"><span class="nav-icon" aria-hidden="true">✓</span><span>Evaluation</span></a>
+      </nav>
+      <div class="sidebar-bottom">
+        <div class="sidebar-rule"></div>
+        <p class="eyebrow">DEMO MODE</p>
+        <p class="sidebar-note">Synthetic data and inspectable planning rules. This prototype does not replace a guide.</p>
+        <a class="docs-link" href="/api/docs" target="_blank" rel="noreferrer">Open API docs <span aria-hidden="true">↗</span></a>
+      </div>
+    </aside>
+
+    <main id="main-content" class="main-content">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">RUNSENSE / OVERVIEW</p>
+          <p class="today-label" id="today-label">Loading date…</p>
+        </div>
+        <div class="topbar-actions">
+          <span class="demo-badge" id="mode-badge"><span class="status-dot" aria-hidden="true"></span><span id="mode-label">Demo mode</span></span>
+          <span class="connection-label" id="connection-label"><span class="quiet-dot" aria-hidden="true"></span><span id="connection-text">No apps connected</span></span>
+          <span class="avatar-button" id="athlete-avatar" aria-label="Athlete Sara">S</span>
+        </div>
+      </header>
+
+      <div id="announcer" class="sr-only" aria-live="polite" aria-atomic="true"></div>
+      <div id="error-banner" class="error-banner" role="alert" hidden>
+        <span class="error-icon" aria-hidden="true">!</span><span id="error-message">Something went wrong.</span>
+        <button id="dismiss-error" type="button" class="icon-button" aria-label="Dismiss message">×</button>
+      </div>
+
+      <section id="overview" class="page-intro" aria-labelledby="page-title">
+        <div>
+          <p class="section-kicker">WEEK OF <span id="week-start-label">—</span></p>
+          <h1 id="page-title">A good week starts here.</h1>
+          <p class="page-subtitle" id="page-subtitle">A calm, consistent plan for Sara's comfortable 5K.</p>
+        </div>
+        <div class="athlete-chip" id="athlete-chip" aria-label="Athlete Sara, goal a comfortable consistent 5K">
+          <div class="athlete-initials" aria-hidden="true">S</div>
+          <div><span class="athlete-name" id="athlete-name">Sara</span><span class="athlete-goal" id="athlete-goal">5K goal</span></div>
+        </div>
+      </section>
+
+      <section class="hero-card" aria-labelledby="next-workout-title">
+        <div class="hero-content">
+          <div class="hero-heading-row">
+            <p class="eyebrow hero-eyebrow">NEXT WORKOUT</p>
+            <span class="status-pill planned" id="hero-status">Planned</span>
+          </div>
+          <div class="hero-date" id="hero-date">—</div>
+          <h2 id="next-workout-title">Loading your next workout…</h2>
+          <p class="hero-meta" id="hero-meta">Your plan is being prepared.</p>
+          <p class="hero-rationale" id="hero-rationale"></p>
+          <button class="listen-button" id="listen-button" type="button" aria-pressed="false">
+            <span class="listen-icon" aria-hidden="true"><span></span><span></span><span></span><span></span></span>
+            <span id="listen-label">Listen to plan</span>
+          </button>
+        </div>
+        <div class="hero-orbit" aria-hidden="true">
+          <div class="orbit-ring orbit-ring-large"></div><div class="orbit-ring orbit-ring-small"></div>
+          <div class="orbit-center">RS</div>
+          <span class="orbit-star star-a">✦</span><span class="orbit-star star-b">✧</span><span class="orbit-star star-c">·</span>
+        </div>
+      </section>
+
+      <div class="dashboard-grid">
+        <div class="primary-column">
+          <section id="week-plan" class="content-section" aria-labelledby="week-heading">
+            <div class="section-heading-row">
+              <div><p class="section-kicker">THE RHYTHM</p><h2 id="week-heading">Your week at a glance</h2></div>
+              <div class="week-total"><span id="week-total-km">—</span><span>planned km</span></div>
+            </div>
+            <div id="week-list" class="week-list" aria-live="polite" aria-busy="true">
+              <div class="skeleton-row"></div><div class="skeleton-row"></div><div class="skeleton-row"></div>
+            </div>
+          </section>
+
+          <section id="agent-trace" class="content-section trace-section" aria-labelledby="trace-heading">
+            <div class="section-heading-row"><div><p class="section-kicker">WHAT HAPPENED</p><h2 id="trace-heading">Agent trace</h2></div><span class="trace-caption">Inspect the plan's path</span></div>
+            <div id="trace-list" class="trace-list" aria-live="polite"><p class="empty-state">Trace details will appear with your plan.</p></div>
+          </section>
+
+          <section id="evaluation" class="content-section evaluation-section" aria-labelledby="evaluation-heading">
+            <div class="section-heading-row"><div><p class="section-kicker">QUALITY GATE</p><h2 id="evaluation-heading">Evaluation</h2></div><button id="evaluate-button" class="secondary-button" type="button">Run reliability checks</button></div>
+            <div id="evaluation-panel" class="evaluation-panel"><p class="empty-state">Run the checks to inspect reliability and validation. Perception: not measured.</p></div>
+          </section>
+        </div>
+
+        <aside class="secondary-column" aria-label="Coach notes and actions">
+          <section class="coach-card" aria-labelledby="coach-heading">
+            <div class="coach-card-top"><span class="coach-spark" aria-hidden="true">✦</span><p class="section-kicker">COACH'S NOTE</p></div>
+            <h2 id="coach-heading">Small steps, held together.</h2>
+            <p id="coach-rationale">Your plan rationale will appear here once the week is ready.</p>
+            <div class="coach-rule"></div>
+            <p class="coach-footnote"><span class="mini-check" aria-hidden="true">✓</span> Built around consistency and clear cues</p>
+          </section>
+
+          <section class="actions-card" aria-labelledby="actions-heading">
+            <div class="section-heading-row"><div><p class="section-kicker">TRY A SCENARIO</p><h2 id="actions-heading">Coach actions</h2></div></div>
+            <p class="actions-intro">See how the plan responds to a change.</p>
+            <div class="action-list">
+              <button class="action-button primary-action" data-scenario="baseline" type="button"><span>Plan my demo week</span><span class="button-arrow" aria-hidden="true">→</span></button>
+              <button class="action-button" data-scenario="guide_cancelled" type="button"><span>Demo: Guide cancelled</span><span class="button-arrow" aria-hidden="true">→</span></button>
+              <button class="action-button" data-scenario="missed_session" type="button"><span>Demo: Missed session</span><span class="button-arrow" aria-hidden="true">→</span></button>
+              <button class="action-button" data-scenario="calendar_retry" type="button"><span>Demo: Calendar failure</span><span class="button-arrow" aria-hidden="true">→</span></button>
+            </div>
+            <p class="action-status" id="action-status" aria-live="polite">Demo scenarios leave any Strava preview unchanged.</p>
+          </section>
+
+          <section class="strava-card" aria-labelledby="strava-heading">
+            <div class="section-heading-row"><div><p class="section-kicker">PERSONAL CONNECTION</p><h2 id="strava-heading">Strava MCP</h2></div><span class="strava-status-pill" id="strava-status-pill">Not connected</span></div>
+            <p class="strava-description">Connect your own Strava subscription to read training history.</p>
+            <p class="strava-setup">Set <code>STRAVA_MCP_ACCESS_TOKEN</code> and select a discovered activity tool in server configuration. Tokens never belong in chat. <a href="/setup/strava-mcp" target="_blank" rel="noreferrer">Setup guide</a></p>
+            <div class="strava-actions">
+              <button class="secondary-button" id="strava-check" type="button">Check access</button>
+              <button class="secondary-button" id="strava-disconnect" type="button">Disconnect locally</button>
+              <button class="action-button primary-action" id="strava-plan" type="button" disabled><span>Plan with Strava</span><span class="button-arrow" aria-hidden="true">→</span></button>
+            </div>
+            <p class="strava-detail" id="strava-detail" aria-live="polite">Not connected. Server controlled configuration is required.</p>
+            <p class="strava-tools" id="strava-tools"></p>
+          </section>
+
+          <section class="integrations-card" aria-labelledby="integrations-heading">
+            <div class="section-heading-row"><div><p class="section-kicker">CONNECTIONS</p><h2 id="integrations-heading">Integrations</h2></div></div>
+            <div id="integrations-list" class="integrations-list"><p class="empty-state">Checking connections…</p></div>
+            <p class="integrations-note">Connections stay off in this demo unless you configure Strava MCP. No perception measured. <a href="/api/docs" target="_blank" rel="noreferrer">View API</a></p>
+          </section>
+        </aside>
+      </div>
+      <footer class="page-footer"><span>RunSense demo</span><span>Voice-first training for every runner</span></footer>
+    </main>
+  </div>
+  <script src="/static/app.js" defer></script>
+</body>
+</html>
