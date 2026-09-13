@@ -1,3 +1,5 @@
+import json
+
 import httpx
 from fastapi.testclient import TestClient
 from datetime import datetime, timedelta, timezone
@@ -141,7 +143,7 @@ def test_calendar_tool_route_creates_an_event_with_the_same_contract():
 
     def calendar_handler(request):
         requests.append(request)
-        return httpx.Response(200, json=__import__("json").loads(request.content))
+        return httpx.Response(200, json=json.loads(request.content))
 
     client = app_client(
         lambda request: httpx.Response(200, json={}),

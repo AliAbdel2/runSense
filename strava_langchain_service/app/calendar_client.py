@@ -172,3 +172,10 @@ class GoogleCalendarClient:
             params={"sendUpdates": send_updates},
             json=event,
         )
+
+
+# Short aliases mirror the existing application's CalendarClient naming while
+# keeping the provider-specific class explicit for the standalone service.
+CalendarClient = GoogleCalendarClient
+CalendarAPIError = GoogleCalendarError
+CalendarInputError = GoogleCalendarInputError
