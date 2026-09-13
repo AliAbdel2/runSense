@@ -5,10 +5,13 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../models/alert.dart';
+import '../models/session.dart';
+import '../services/mock/mock_session_service.dart';
 import '../services/perception_service.dart';
 import '../services/session_service.dart';
 import '../services/tts_service.dart';
 import '../widgets/big_action_button.dart';
+import 'session_summary_screen.dart';
 
 /// Live Run screen (plan section 6.2): subscribes to
 /// PerceptionService.alertStream(), speaks each alert, interrupts + haptics
@@ -74,7 +77,26 @@ class _LiveRunScreenState extends State<LiveRunScreen> {
       await sessionService.endSession(sessionId);
     }
     if (!mounted) return;
-    Navigator.of(context).pop();
+
+    // MockSessionService.endSession() can't return the CompletedSession
+    // directly (the SessionService interface locks it to Future<void> — see
+    // the checkpoint-2 deviation note in PROGRESS.md), so this cast is the
+    // documented way to read it. alertCount is overridden with what this
+    // screen actually observed rather than the mock's hardcoded value, since
+    // that number is real; distance/duration stay mocked until a
+    // LiveLocationService exists to measure them for real.
+    final mockCompleted =
+        sessionService is MockSessionService ? sessionService.lastCompleted : null;
+    final summary = CompletedSession(
+      sessionId: mockCompleted?.sessionId ?? sessionId ?? widget.plannedSessionId,
+      actualKm: mockCompleted?.actualKm ?? 0.0,
+      duration: mockCompleted?.duration ?? Duration.zero,
+      alertCount: _alertCount,
+      adaptationNote: mockCompleted?.adaptationNote,
+    );
+    Navigator.of(context).pushReplacement(
+      MaterialPageRoute(builder: (_) => SessionSummaryScreen(session: summary)),
+    );
   }
 
   @override

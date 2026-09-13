@@ -43,13 +43,20 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  // Deliberately NOT keyed off the real calendar date: MockData.baseWeek()
+  // assigns each session to its real next-occurring weekday, so matching
+  // DateTime.now() meant Home's "today" — and whether Start Session was even
+  // enabled — depended on which real-world weekday the app happened to be
+  // opened on (rest days disable it). For a demo that's a landmine. Always
+  // surface the hard-interval day instead, so the primary demo path (start a
+  // session, live alerts, guide-cancellation replan) works regardless of
+  // what day it actually is. Week Plan still shows the true 7-day week.
   PlannedSession? _pickToday(List<PlannedSession> week) {
     if (week.isEmpty) return null;
-    final todayIso = DateTime.now().toIso8601String().substring(0, 10);
     for (final s in week) {
-      if (s.date == todayIso) return s;
+      if (s.id == 'tue-hard') return s;
     }
-    return week.first; // fallback for the demo if today isn't in the mocked week
+    return week.first;
   }
 
   Future<void> _startSession() async {
