@@ -39,6 +39,15 @@ dependencies:
   flutter_tts: ^4.2.0
   intl: ^0.19.0
 
+  # GPS groundwork for pace/distance tracking — added now so permission
+  # plumbing is in place ahead of a real LiveLocationService. useMock stays
+  # true; MockLocationService is what's wired up in main.dart for now.
+  # (camera + ML Kit packages intentionally NOT added here — the obstacle
+  # detection module in obstacle_detection_module_plan.md is being built by
+  # a teammate, who owns that dependency/platform-config decision.)
+  geolocator: ^13.0.2
+  permission_handler: ^11.3.1
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
