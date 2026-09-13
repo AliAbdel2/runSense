@@ -15,6 +15,7 @@ import 'services/perception_service.dart';
 import 'services/plan_service.dart';
 import 'services/session_service.dart';
 import 'services/tts_service.dart';
+import 'services/voice_command_service.dart';
 import 'theme/app_theme.dart';
 
 void main() {
@@ -36,6 +37,7 @@ class RunSenseApp extends StatelessWidget {
         // creation — MultiProvider nests in list order, so a provider can only
         // read the ones declared above it.
         Provider<TtsService>(create: (_) => TtsService()),
+        Provider<VoiceCommandService>(create: (_) => VoiceCommandService()),
         Provider<PlanService>(
           create: (_) => useMock
               ? MockPlanService()

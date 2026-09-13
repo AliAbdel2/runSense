@@ -6,6 +6,8 @@
     <!-- Pace/distance tracking during a run -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <!-- Voice "start" command on the coach briefing screen (VoiceCommandService) -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
 
     <application
         android:label="runsense"

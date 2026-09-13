@@ -5,6 +5,11 @@
 	<!-- Obstacle detection module (obstacle_detection_module_plan.md 4.3) -->
 	<key>NSCameraUsageDescription</key>
 	<string>The camera is used to detect obstacles ahead of you while you run.</string>
+	<!-- Voice "start" command on the coach briefing screen (VoiceCommandService) -->
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Your microphone lets you start your run by voice instead of tapping the screen.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Speech recognition is used to hear you say "start" so you can begin your run hands-free.</string>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
 	<key>CFBundleDevelopmentRegion</key>

@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import '../models/session.dart';
 import '../services/agent_chat_service.dart';
 import '../services/tts_service.dart';
+import '../services/voice_command_service.dart';
 import '../theme/app_spacing.dart';
 import '../theme/app_theme.dart';
 import '../widgets/accessible_back_button.dart';
@@ -32,10 +33,22 @@ class _CoachBriefingScreenState extends State<CoachBriefingScreen> {
   _BriefingState _state = _BriefingState.loading;
   String? _coachReply;
 
+  /// Guards against the voice trigger and a button tap both firing —
+  /// _startRun must only ever run once.
+  bool _starting = false;
+
+  static const _startPhrases = ['start', 'begin', 'go', 'ready', 'start run'];
+
   @override
   void initState() {
     super.initState();
     _loadBriefing();
+  }
+
+  @override
+  void dispose() {
+    context.read<VoiceCommandService>().stop();
+    super.dispose();
   }
 
   Future<void> _loadBriefing() async {
@@ -64,12 +77,49 @@ class _CoachBriefingScreenState extends State<CoachBriefingScreen> {
 
     final toSpeak = errored
         ? "${session.spokenSummary} I couldn't reach your coach, but you can "
-            "still start."
-        : '${session.spokenSummary} ${reply ?? ''}';
+            "still start. Say start when you're ready."
+        : "${session.spokenSummary} ${reply ?? ''} Say start when you're ready.";
     await tts.speak(toSpeak);
+
+    if (!mounted) return;
+    _listenForStartCommand();
+  }
+
+  /// Lets a runner who can't see (or find) the button start by voice —
+  /// listens for "start"/"go"/etc. and re-arms itself if the listen window
+  /// times out with nothing heard. Gives up for good (falls back to the
+  /// button silently) once the mic/plugin proves unavailable, or after
+  /// [_maxListenAttempts] tries, rather than busy-looping forever.
+  static const _maxListenAttempts = 6;
+  var _listenAttempts = 0;
+
+  Future<void> _listenForStartCommand() async {
+    if (!mounted || _starting) return;
+    if (_listenAttempts >= _maxListenAttempts) return;
+    _listenAttempts++;
+
+    try {
+      await Permission.microphone.request();
+    } catch (_) {
+      return;
+    }
+    if (!mounted || _starting) return;
+
+    final wasAvailable =
+        await context.read<VoiceCommandService>().listenForPhrase(
+              triggerPhrases: _startPhrases,
+              onMatch: _startRun,
+            );
+    if (!wasAvailable || !mounted || _starting) return;
+
+    await Future.delayed(const Duration(seconds: 1));
+    _listenForStartCommand();
   }
 
   Future<void> _startRun() async {
+    if (_starting) return;
+    _starting = true;
+    await context.read<VoiceCommandService>().stop();
     final tts = context.read<TtsService>();
     var granted = false;
     try {
